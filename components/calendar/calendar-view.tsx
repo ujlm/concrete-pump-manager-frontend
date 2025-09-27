@@ -11,6 +11,7 @@ import { ConflictDialog } from './conflict-dialog';
 import { getJobsForDate, moveJob, updateJobStatus, createJob, updateJob, deleteJob } from '@/lib/actions/calendar';
 import { convertJobToCalendarJob, detectJobConflicts } from '@/lib/types/calendar';
 import type { Job, Driver, CalendarView, ZoomLevel, CalendarJob, ConflictInfo } from '@/lib/types/calendar';
+import { timeToMinutes, minutesToTime, TIME_SLOT_MINUTES } from '@/lib/types/calendar';
 import { toast } from '@/components/ui/use-toast';
 
 interface CalendarViewProps {
@@ -84,6 +85,7 @@ export function CalendarView({
     newDriverId?: string;
   } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [clearDragSelection, setClearDragSelection] = useState(false);
 
   // Helper function to add hours to a time string using moment
   const addHoursToTime = (timeString: string, hours: number): string => {
@@ -216,6 +218,21 @@ export function CalendarView({
     }
   }, [currentUser.roles]);
 
+  const handleCreateJobWithTimeRange = useCallback((startTime: string, endTime: string, driverId?: string) => {
+    if (currentUser.roles.some(role => ['dispatcher', 'manager', 'organization_admin'].includes(role))) {
+      setSelectedJob(null);
+      setJobModalMode('create');
+      setIsJobModalOpen(true);
+      // Preset the time range and driverId
+      setSelectedJob({
+        id: '',
+        start_time: startTime,
+        end_time: minutesToTime(timeToMinutes(endTime) + TIME_SLOT_MINUTES),
+        pumpist_id: driverId,
+      } as CalendarJob);
+    }
+  }, [currentUser.roles]);
+
   const handleJobMove = useCallback(async (jobId: string, newTime: string, newDriverId?: string) => {
     // Check for conflicts first
     const movingJob = jobs.find(j => j.id === jobId);
@@ -305,6 +322,9 @@ export function CalendarView({
           ));
         }
         setIsJobModalOpen(false);
+        // Clear drag selection after successful job creation
+        setClearDragSelection(true);
+        setTimeout(() => setClearDragSelection(false), 100);
         toast({
           title: 'Success',
           description: `Job ${jobModalMode === 'create' ? 'created' : 'updated'} successfully`,
@@ -365,10 +385,12 @@ export function CalendarView({
             onJobClick={handleJobClick}
             onJobDoubleClick={handleJobDoubleClick}
             onCreateJob={handleCreateJob}
+            onCreateJobWithTimeRange={handleCreateJobWithTimeRange}
             onJobMove={handleJobMove}
             onStatusChange={handleStatusChange}
             isLoading={isLoading}
             currentUserRoles={currentUser.roles}
+            clearDragSelection={clearDragSelection}
           />
         </div>
 
@@ -380,7 +402,12 @@ export function CalendarView({
             selectedDate={selectedDate}
             onSave={handleJobSave}
             onDelete={handleJobDelete}
-            onClose={() => setIsJobModalOpen(false)}
+            onClose={() => {
+              setIsJobModalOpen(false);
+              // Clear drag selection when modal is closed without saving
+              setClearDragSelection(true);
+              setTimeout(() => setClearDragSelection(false), 100);
+            }}
           />
         )}
 

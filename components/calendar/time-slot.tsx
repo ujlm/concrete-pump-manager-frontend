@@ -13,9 +13,15 @@ interface TimeSlotProps {
   onJobDoubleClick: (job: CalendarJob) => void;
   onCreateJob: (time: string, driverId?: string) => void;
   onJobMove: (jobId: string, newTime: string, newDriverId?: string) => void;
+  onCreateJobWithTimeRange?: (startTime: string, endTime: string, driverId?: string) => void;
   canManageJobs: boolean;
   allowOverlaps: boolean;
   isUnassigned?: boolean;
+  isDragSelecting?: boolean;
+  isDragSelected?: boolean;
+  onDragStart?: (time: string, driverId?: string) => void;
+  onDragEnter?: (time: string, driverId?: string) => void;
+  onDragEnd?: () => void;
 }
 
 export function TimeSlot({
@@ -27,9 +33,15 @@ export function TimeSlot({
   onJobDoubleClick,
   onCreateJob,
   onJobMove,
+  onCreateJobWithTimeRange,
   canManageJobs,
   allowOverlaps,
   isUnassigned = false,
+  isDragSelecting = false,
+  isDragSelected = false,
+  onDragStart,
+  onDragEnter,
+  onDragEnd,
 }: TimeSlotProps) {
   const [{ isOver, canDrop }, drop] = useDrop({
     accept: 'job',
@@ -63,13 +75,34 @@ export function TimeSlot({
     }
   };
 
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (canManageJobs && !hasJobs && onDragStart) {
+      e.preventDefault();
+      onDragStart(time, driverId);
+    }
+  };
+
+  const handleMouseEnter = () => {
+    if (isDragSelecting && onDragEnter) {
+      onDragEnter(time, driverId);
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (isDragSelecting && onDragEnd) {
+      onDragEnd();
+    }
+  };
+
   return (
     <div
       ref={drop as any}
       className={`h-8 border-b border-gray-200 relative cursor-pointer transition-colors ${
         isHourSlot ? 'border-b-2 border-gray-300' : ''
       } ${
-        isOver && canDrop
+        isDragSelected
+          ? 'bg-blue-200'
+          : isOver && canDrop
           ? 'bg-blue-100'
           : isOver && !canDrop
           ? 'bg-red-100'
@@ -78,7 +111,10 @@ export function TimeSlot({
           : 'hover:bg-gray-50'
       }`}
       onDoubleClick={handleDoubleClick}
-      title={canManageJobs && !hasJobs ? `Double-click to create job at ${time}` : undefined}
+      onMouseDown={handleMouseDown}
+      onMouseEnter={handleMouseEnter}
+      onMouseUp={handleMouseUp}
+      title={canManageJobs && !hasJobs ? `Double-click to create job at ${time} or click and drag to select time range` : undefined}
     >
       {/* Drop indicator */}
       {isOver && canDrop && (

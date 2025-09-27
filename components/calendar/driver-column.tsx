@@ -15,12 +15,23 @@ interface DriverColumnProps {
   onJobClick: (job: CalendarJob) => void;
   onJobDoubleClick: (job: CalendarJob) => void;
   onCreateJob: (time: string, driverId?: string) => void;
+  onCreateJobWithTimeRange?: (startTime: string, endTime: string, driverId?: string) => void;
   onJobMove: (jobId: string, newTime: string, newDriverId?: string) => void;
   onStatusChange: (jobId: string, newStatus: CalendarJob['status']) => void;
   canManageJobs: boolean;
   allowOverlaps: boolean;
   sectionType: string;
   isUnassigned?: boolean;
+  dragSelection?: {
+    isActive: boolean;
+    startTime?: string;
+    endTime?: string;
+    driverId?: string;
+    showHighlight?: boolean;
+  };
+  onDragSelectionStart?: (time: string, driverId?: string) => void;
+  onDragSelectionUpdate?: (time: string, driverId?: string) => void;
+  onDragSelectionEnd?: () => void;
 }
 
 export function DriverColumn({
@@ -31,12 +42,17 @@ export function DriverColumn({
   onJobClick,
   onJobDoubleClick,
   onCreateJob,
+  onCreateJobWithTimeRange,
   onJobMove,
   onStatusChange,
   canManageJobs,
   allowOverlaps,
   sectionType,
   isUnassigned = false,
+  dragSelection,
+  onDragSelectionStart,
+  onDragSelectionUpdate,
+  onDragSelectionEnd,
 }: DriverColumnProps) {
   const [{ isOver }, drop] = useDrop({
     accept: 'job',
@@ -52,6 +68,29 @@ export function DriverColumn({
   const driverName = isUnassigned
     ? 'Unassigned'
     : `${driver.first_name} ${driver.last_name}`.trim();
+
+  // Helper function to check if a time slot is within the drag selection range
+  const isTimeInDragSelection = (time: string): boolean => {
+    if (!dragSelection?.showHighlight || !dragSelection.startTime || !dragSelection.endTime) {
+      return false;
+    }
+    
+    // Only apply to the same driver
+    const currentDriverId = isUnassigned ? undefined : driver.id;
+    if (dragSelection.driverId !== currentDriverId) {
+      return false;
+    }
+    
+    const currentTime = time;
+    const startTime = dragSelection.startTime;
+    const endTime = dragSelection.endTime;
+    
+    // Ensure proper ordering
+    const actualStartTime = startTime <= endTime ? startTime : endTime;
+    const actualEndTime = startTime <= endTime ? endTime : startTime;
+    
+    return currentTime >= actualStartTime && currentTime <= actualEndTime;
+  };
 
   return (
     <div
@@ -81,10 +120,16 @@ export function DriverColumn({
               onJobClick={onJobClick}
               onJobDoubleClick={onJobDoubleClick}
               onCreateJob={onCreateJob}
+              onCreateJobWithTimeRange={onCreateJobWithTimeRange}
               onJobMove={onJobMove}
               canManageJobs={canManageJobs}
               allowOverlaps={allowOverlaps}
               isUnassigned={isUnassigned}
+              isDragSelecting={dragSelection?.isActive && dragSelection?.driverId === (isUnassigned ? undefined : driver.id)}
+              isDragSelected={isTimeInDragSelection(timeSlot.time)}
+              onDragStart={onDragSelectionStart}
+              onDragEnter={onDragSelectionUpdate}
+              onDragEnd={onDragSelectionEnd}
             />
           );
         })}

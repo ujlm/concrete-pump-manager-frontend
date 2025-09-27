@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useDrop } from 'react-dnd';
 import { generateTimeSlots } from '@/lib/types/calendar';
 import { DriverColumn } from './driver-column';
@@ -18,10 +18,12 @@ interface CalendarGridProps {
   onJobClick: (job: CalendarJob) => void;
   onJobDoubleClick: (job: CalendarJob) => void;
   onCreateJob: (time: string, driverId?: string) => void;
+  onCreateJobWithTimeRange?: (startTime: string, endTime: string, driverId?: string) => void;
   onJobMove: (jobId: string, newTime: string, newDriverId?: string) => void;
   onStatusChange: (jobId: string, newStatus: CalendarJob['status']) => void;
   isLoading: boolean;
   currentUserRoles: string[];
+  clearDragSelection?: boolean; // Signal to clear the drag selection
 }
 
 export function CalendarGrid(props: CalendarGridProps) {
@@ -34,15 +36,102 @@ export function CalendarGrid(props: CalendarGridProps) {
     onJobClick,
     onJobDoubleClick,
     onCreateJob,
+    onCreateJobWithTimeRange,
     onJobMove,
     onStatusChange,
     isLoading,
     currentUserRoles,
+    clearDragSelection,
   } = props;
   const timeSlots = generateTimeSlots();
   const canManageJobs = currentUserRoles.some(role =>
     ['dispatcher', 'manager', 'organization_admin'].includes(role)
   );
+
+  // Drag selection state
+  const [dragSelection, setDragSelection] = useState<{
+    isActive: boolean;
+    startTime?: string;
+    endTime?: string;
+    driverId?: string;
+    showHighlight?: boolean; // Keep highlight visible even when not actively dragging
+  }>({
+    isActive: false,
+    showHighlight: false,
+  });
+
+  // Handle drag selection start
+  const handleDragSelectionStart = useCallback((time: string, driverId?: string) => {
+    setDragSelection({
+      isActive: true,
+      startTime: time,
+      endTime: time,
+      driverId,
+      showHighlight: true,
+    });
+  }, []);
+
+  // Handle drag selection update
+  const handleDragSelectionUpdate = useCallback((time: string, driverId?: string) => {
+    setDragSelection(prev => {
+      // Only update if we're dragging in the same driver column
+      if (prev.isActive && prev.driverId === driverId) {
+        return {
+          ...prev,
+          endTime: time,
+        };
+      }
+      return prev;
+    });
+  }, []);
+
+  // Handle drag selection end
+  const handleDragSelectionEnd = useCallback(() => {
+    if (dragSelection.isActive && dragSelection.startTime && dragSelection.endTime && onCreateJobWithTimeRange) {
+      const startTime = dragSelection.startTime;
+      const endTime = dragSelection.endTime;
+      
+      // Ensure proper ordering (start should be earlier than end)
+      const actualStartTime = startTime <= endTime ? startTime : endTime;
+      const actualEndTime = startTime <= endTime ? endTime : startTime;
+      
+      // Only create job if there's a meaningful time range (at least 15 minutes)
+      if (actualStartTime !== actualEndTime) {
+        onCreateJobWithTimeRange(actualStartTime, actualEndTime, dragSelection.driverId);
+        // Keep the selection highlighted but mark as not actively dragging
+        setDragSelection(prev => ({
+          ...prev,
+          isActive: false,
+          showHighlight: true, // Keep highlight visible when modal opens
+        }));
+        return;
+      }
+    }
+    
+    // Clear selection if no job was created
+    setDragSelection({ isActive: false, showHighlight: false });
+  }, [dragSelection, onCreateJobWithTimeRange]);
+
+  // Handle mouse up anywhere to end drag selection
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (dragSelection.isActive) {
+        handleDragSelectionEnd();
+      }
+    };
+
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => {
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [dragSelection.isActive, handleDragSelectionEnd]);
+
+  // Clear drag selection when requested from parent
+  useEffect(() => {
+    if (clearDragSelection) {
+      setDragSelection({ isActive: false, showHighlight: false });
+    }
+  }, [clearDragSelection]);
 
   // Filter jobs based on view
   const getJobsForView = (viewType: 'planned' | 'assigned') => {
@@ -152,11 +241,16 @@ export function CalendarGrid(props: CalendarGridProps) {
                 onJobClick={onJobClick}
                 onJobDoubleClick={onJobDoubleClick}
                 onCreateJob={onCreateJob}
+                onCreateJobWithTimeRange={onCreateJobWithTimeRange}
                 onJobMove={onJobMove}
                 onStatusChange={onStatusChange}
                 canManageJobs={canManageJobs}
                 allowOverlaps={false}
                 sectionType="assigned"
+                dragSelection={dragSelection}
+                onDragSelectionStart={handleDragSelectionStart}
+                onDragSelectionUpdate={handleDragSelectionUpdate}
+                onDragSelectionEnd={handleDragSelectionEnd}
               />
             </div>
           </div>
@@ -181,11 +275,16 @@ export function CalendarGrid(props: CalendarGridProps) {
                 onJobClick={onJobClick}
                 onJobDoubleClick={onJobDoubleClick}
                 onCreateJob={onCreateJob}
+                onCreateJobWithTimeRange={onCreateJobWithTimeRange}
                 onJobMove={onJobMove}
                 onStatusChange={onStatusChange}
                 canManageJobs={canManageJobs}
                 allowOverlaps={true}
                 sectionType="planned"
+                dragSelection={dragSelection}
+                onDragSelectionStart={handleDragSelectionStart}
+                onDragSelectionUpdate={handleDragSelectionUpdate}
+                onDragSelectionEnd={handleDragSelectionEnd}
               />
             </div>
           </div>
@@ -247,11 +346,16 @@ export function CalendarGrid(props: CalendarGridProps) {
           onJobClick={onJobClick}
           onJobDoubleClick={onJobDoubleClick}
           onCreateJob={onCreateJob}
+          onCreateJobWithTimeRange={onCreateJobWithTimeRange}
           onJobMove={onJobMove}
           onStatusChange={onStatusChange}
           canManageJobs={canManageJobs}
           allowOverlaps={view === 'planned'}
           sectionType={view || 'unified'}
+          dragSelection={dragSelection}
+          onDragSelectionStart={handleDragSelectionStart}
+          onDragSelectionUpdate={handleDragSelectionUpdate}
+          onDragSelectionEnd={handleDragSelectionEnd}
         />
       </div>
     </div>
@@ -267,11 +371,22 @@ interface CalendarSectionProps {
   onJobClick: (job: CalendarJob) => void;
   onJobDoubleClick: (job: CalendarJob) => void;
   onCreateJob: (time: string, driverId?: string) => void;
+  onCreateJobWithTimeRange?: (startTime: string, endTime: string, driverId?: string) => void;
   onJobMove: (jobId: string, newTime: string, newDriverId?: string) => void;
   onStatusChange: (jobId: string, newStatus: CalendarJob['status']) => void;
   canManageJobs: boolean;
   allowOverlaps: boolean;
   sectionType: string;
+  dragSelection?: {
+    isActive: boolean;
+    startTime?: string;
+    endTime?: string;
+    driverId?: string;
+    showHighlight?: boolean;
+  };
+  onDragSelectionStart?: (time: string, driverId?: string) => void;
+  onDragSelectionUpdate?: (time: string, driverId?: string) => void;
+  onDragSelectionEnd?: () => void;
 }
 
 interface DropResult { time?: string; driverId?: string }
@@ -285,11 +400,16 @@ function CalendarSection({
   onJobClick,
   onJobDoubleClick,
   onCreateJob,
+  onCreateJobWithTimeRange,
   onJobMove,
   onStatusChange,
   canManageJobs,
   allowOverlaps,
   sectionType,
+  dragSelection,
+  onDragSelectionStart,
+  onDragSelectionUpdate,
+  onDragSelectionEnd,
 }: CalendarSectionProps) {
   const [, drop] = useDrop({
     accept: 'job',
@@ -361,12 +481,17 @@ function CalendarSection({
             onJobClick={onJobClick}
             onJobDoubleClick={onJobDoubleClick}
             onCreateJob={onCreateJob}
+            onCreateJobWithTimeRange={onCreateJobWithTimeRange}
             onJobMove={onJobMove}
             onStatusChange={onStatusChange}
             canManageJobs={canManageJobs}
             allowOverlaps={allowOverlaps}
             sectionType={sectionType}
             isUnassigned={driver.id === 'unassigned'}
+            dragSelection={dragSelection}
+            onDragSelectionStart={onDragSelectionStart}
+            onDragSelectionUpdate={onDragSelectionUpdate}
+            onDragSelectionEnd={onDragSelectionEnd}
           />
         ))}
       </div>
