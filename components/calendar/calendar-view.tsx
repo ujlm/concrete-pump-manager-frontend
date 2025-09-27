@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { format, addDays, subDays } from 'date-fns';
+import moment from 'moment';
 import { CalendarHeader } from './calendar-header';
 import { CalendarGrid } from './calendar-grid';
 import { JobModal } from './job-modal';
@@ -85,6 +85,12 @@ export function CalendarView({
   } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Helper function to add hours to a time string using moment
+  const addHoursToTime = (timeString: string, hours: number): string => {
+    if (!timeString) return '';
+    return moment(timeString, 'HH:mm').add(hours, 'hours').format('HH:mm');
+  };
+
   // Fetch jobs for selected date
   const fetchJobsForDate = useCallback(async (date: string) => {
     setIsLoading(true);
@@ -125,19 +131,19 @@ export function CalendarView({
 
   // Navigation handlers
   const handlePreviousDay = useCallback(() => {
-    const newDate = format(subDays(new Date(selectedDate), 1), 'yyyy-MM-dd');
+    const newDate = moment(selectedDate).subtract(1, 'day').format('YYYY-MM-DD');
     handleDateChange(newDate);
     externalOnPreviousDay?.();
   }, [selectedDate, handleDateChange, externalOnPreviousDay]);
   
   const handleNextDay = useCallback(() => {
-    const newDate = format(addDays(new Date(selectedDate), 1), 'yyyy-MM-dd');
+    const newDate = moment(selectedDate).add(1, 'day').format('YYYY-MM-DD');
     handleDateChange(newDate);
     externalOnNextDay?.();
   }, [selectedDate, handleDateChange, externalOnNextDay]);
   
   const handleToday = useCallback(() => {
-    const newDate = format(new Date(), 'yyyy-MM-dd');
+    const newDate = moment().format('YYYY-MM-DD');
     handleDateChange(newDate);
     externalOnToday?.();
   }, [handleDateChange, externalOnToday]);
@@ -200,6 +206,13 @@ export function CalendarView({
       setJobModalMode('create');
       setIsJobModalOpen(true);
       // You can set initial values here based on time and driverId
+      // Preset the time and driverId
+      setSelectedJob({
+        id: '',
+        start_time: time,
+        end_time: addHoursToTime(time, 2),
+        pumpist_id: driverId,
+      } as CalendarJob);
     }
   }, [currentUser.roles]);
 

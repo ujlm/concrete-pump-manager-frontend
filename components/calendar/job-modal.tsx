@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import moment from "moment";
 import {
   Dialog,
   DialogContent,
@@ -103,20 +104,10 @@ export function JobModal({
   const [activeTab, setActiveTab] = useState("details");
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
 
-  // Function to add hours to a time string
+  // Function to add hours to a time string using moment
   const addHoursToTime = (timeString: string, hours: number): string => {
     if (!timeString) return "";
-
-    const [hoursStr, minutesStr] = timeString.split(":");
-    const totalMinutes =
-      parseInt(hoursStr) * 60 + parseInt(minutesStr) + hours * 60;
-
-    const newHours = Math.floor(totalMinutes / 60);
-    const newMinutes = totalMinutes % 60;
-
-    return `${newHours.toString().padStart(2, "0")}:${newMinutes
-      .toString()
-      .padStart(2, "0")}`;
+    return moment(timeString, "HH:mm").add(hours, "hours").format("HH:mm");
   };
 
   const form = useForm<JobFormData>({
