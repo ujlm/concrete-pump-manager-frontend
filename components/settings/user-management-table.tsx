@@ -58,7 +58,7 @@ interface UserManagementTableProps {
 }
 
 const roleIcons = {
-  pompist: User,
+  driver: User,
   dispatcher: Truck,
   manager: Shield,
   accountant: Calculator,
@@ -66,7 +66,7 @@ const roleIcons = {
 };
 
 const roleLabels = {
-  pompist: "Pompist",
+  driver: "driver",
   dispatcher: "Dispatcher",
   manager: "Manager",
   accountant: "Accountant",
@@ -74,7 +74,7 @@ const roleLabels = {
 };
 
 const roleColors = {
-  pompist: "bg-blue-100 text-blue-800",
+  driver: "bg-blue-100 text-blue-800",
   dispatcher: "bg-green-100 text-green-800",
   manager: "bg-purple-100 text-purple-800",
   accountant: "bg-orange-100 text-orange-800",

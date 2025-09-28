@@ -29,8 +29,8 @@ interface InviteUserDialogProps {
 
 const roles = [
   {
-    value: 'pompist',
-    label: 'Pompist',
+    value: 'driver',
+    label: 'driver',
     description: 'Can manage job assignments and pump operations',
     icon: User,
   },
@@ -74,7 +74,7 @@ export function InviteUserDialog({
       first_name: '',
       last_name: '',
       email: '',
-      roles: ['pompist'],
+      roles: ['driver'],
     },
   });
 

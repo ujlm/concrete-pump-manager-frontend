@@ -9,9 +9,8 @@ import { CalendarGrid } from './calendar-grid';
 import { JobModal } from './job-modal';
 import { ConflictDialog } from './conflict-dialog';
 import { getJobsForDate, moveJob, updateJobStatus, createJob, updateJob, deleteJob } from '@/lib/actions/calendar';
-import { convertJobToCalendarJob, detectJobConflicts } from '@/lib/types/calendar';
+import { convertJobToCalendarJob, detectJobConflicts, timeToMinutes, minutesToTime, calculateDepartureTime, TIME_SLOT_MINUTES } from '@/lib/types/calendar';
 import type { Job, Driver, CalendarView, ZoomLevel, CalendarJob, ConflictInfo } from '@/lib/types/calendar';
-import { timeToMinutes, minutesToTime, TIME_SLOT_MINUTES } from '@/lib/types/calendar';
 import { toast } from '@/components/ui/use-toast';
 
 interface CalendarViewProps {
@@ -211,9 +210,31 @@ export function CalendarView({
       // Preset the time and driverId
       setSelectedJob({
         id: '',
+        organization_id: '',
         start_time: time,
         end_time: addHoursToTime(time, 2),
+        job_status: 'planning' as const,
+        planning_status: 'planned' as const,
+        proprietary_concrete: false,
+        client_id: '',
+        price_list_id: '',
+        travel_time_minutes: 0,
+        volume_expected: 0,
+        pipe_expected: 35,
+        cement_milk: false,
+        central_cleaning: false,
+        cement_bags: 0,
+        frc: false,
+        created_at: new Date().toISOString(),
+        job_date: selectedDate,
         pumpist_id: driverId,
+        startMinutes: 0,
+        endMinutes: 0,
+        durationMinutes: 0,
+        travelMinutes: 0,
+        workMinutes: 0,
+        gridRow: 0,
+        gridSpan: 0,
       } as CalendarJob);
     }
   }, [currentUser.roles]);
@@ -226,17 +247,58 @@ export function CalendarView({
       // Preset the time range and driverId
       setSelectedJob({
         id: '',
+        organization_id: '',
         start_time: startTime,
         end_time: minutesToTime(timeToMinutes(endTime) + TIME_SLOT_MINUTES),
+        job_status: 'planning' as const,
+        planning_status: 'planned' as const,
+        proprietary_concrete: false,
+        client_id: '',
+        price_list_id: '',
+        travel_time_minutes: 0,
+        volume_expected: 0,
+        pipe_expected: 35,
+        cement_milk: false,
+        central_cleaning: false,
+        cement_bags: 0,
+        frc: false,
+        created_at: new Date().toISOString(),
+        job_date: selectedDate,
         pumpist_id: driverId,
+        startMinutes: 0,
+        endMinutes: 0,
+        durationMinutes: 0,
+        travelMinutes: 0,
+        workMinutes: 0,
+        gridRow: 0,
+        gridSpan: 0,
       } as CalendarJob);
     }
   }, [currentUser.roles]);
 
   const handleJobMove = useCallback(async (jobId: string, newTime: string, newDriverId?: string) => {
+    console.log('🎯 Frontend handleJobMove called:', {
+      jobId,
+      newTime,
+      newDriverId,
+      organizationSlug
+    });
+
     // Check for conflicts first
     const movingJob = jobs.find(j => j.id === jobId);
-    if (!movingJob) return;
+    if (!movingJob) {
+      console.error('❌ Job not found in local state:', jobId);
+      return;
+    }
+
+    console.log('📋 Moving job details:', {
+      id: movingJob.id,
+      current_start_time: movingJob.start_time,
+      current_end_time: movingJob.end_time,
+      current_driver: movingJob.pumpist_id || movingJob.driver_id,
+      new_time: newTime,
+      new_driver: newDriverId
+    });
 
     // Create a temporary moved job to check conflicts
     const tempJob = { ...movingJob };
@@ -246,17 +308,33 @@ export function CalendarView({
     setPendingMove({ jobId, newTime, newDriverId });
 
     try {
+      console.log('🚀 Calling moveJob API...');
       const result = await moveJob(organizationSlug, jobId, newTime, newDriverId);
+      console.log('📡 moveJob API response:', result);
+      
       if (result.success && result.data) {
+        console.log('✅ Job move successful, updating local state');
+        const convertedJob = convertJobToCalendarJob(result.data);
+        console.log('🔄 Converted job for calendar:', {
+          id: convertedJob.id,
+          start_time: convertedJob.start_time,
+          end_time: convertedJob.end_time,
+          startMinutes: convertedJob.startMinutes,
+          endMinutes: convertedJob.endMinutes,
+          gridRow: convertedJob.gridRow,
+          gridSpan: convertedJob.gridSpan
+        });
+        
         // Update local state optimistically
         setJobs(prev => prev.map(job =>
-          job.id === jobId ? convertJobToCalendarJob(result.data) : job
+          job.id === jobId ? convertedJob : job
         ));
         toast({
           title: 'Success',
           description: 'Job moved successfully',
         });
       } else {
+        console.error('❌ Job move failed:', result.error);
         toast({
           title: 'Error',
           description: result.error || 'Failed to move job',
@@ -264,6 +342,7 @@ export function CalendarView({
         });
       }
     } catch (error) {
+      console.error('❌ Job move error:', error);
       toast({
         title: 'Error',
         description: 'Failed to move job',
@@ -274,7 +353,7 @@ export function CalendarView({
     }
   }, [jobs, organizationSlug]);
 
-  const handleStatusChange = useCallback(async (jobId: string, newStatus: Job['status']) => {
+  const handleStatusChange = useCallback(async (jobId: string, newStatus: Job['job_status']) => {
     try {
       const result = await updateJobStatus(organizationSlug, jobId, newStatus);
       if (result.success && result.data) {
@@ -300,6 +379,65 @@ export function CalendarView({
       });
     }
   }, [organizationSlug]);
+
+  const handleJobResize = useCallback(async (jobId: string, newStartTime?: string, newEndTime?: string) => {
+    console.log('🔧 handleJobResize called:', {
+      jobId,
+      newStartTime,
+      newEndTime
+    });
+
+    try {
+      const jobToUpdate = jobs.find(j => j.id === jobId);
+      if (!jobToUpdate) {
+        console.error('❌ Job not found for resize:', jobId);
+        return;
+      }
+
+      console.log('📋 Job to resize:', {
+        id: jobToUpdate.id,
+        current_start_time: jobToUpdate.start_time,
+        current_end_time: jobToUpdate.end_time
+      });
+
+      const updateData: Partial<Job> = {};
+      
+      if (newStartTime) {
+        updateData.start_time = newStartTime;
+        // Travel time is automatically calculated, no need to update departure_time
+      }
+      
+      if (newEndTime) {
+        updateData.end_time = newEndTime;
+      }
+
+      console.log('💾 Resize update data:', updateData);
+
+      const result = await updateJob(organizationSlug, jobId, updateData);
+      if (result.success && result.data) {
+        setJobs(prev => prev.map(job =>
+          job.id === jobId ? convertJobToCalendarJob(result.data) : job
+        ));
+        toast({
+          title: 'Success',
+          description: 'Job time updated successfully',
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: result.error || 'Failed to update job time',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error updating job time:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update job time',
+        variant: 'destructive',
+      });
+    }
+  }, [organizationSlug, jobs, toast]);
 
   const handleJobSave = useCallback(async (jobData: Partial<Job>) => {
     try {
@@ -387,6 +525,7 @@ export function CalendarView({
             onCreateJob={handleCreateJob}
             onCreateJobWithTimeRange={handleCreateJobWithTimeRange}
             onJobMove={handleJobMove}
+            onJobResize={handleJobResize}
             onStatusChange={handleStatusChange}
             isLoading={isLoading}
             currentUserRoles={currentUser.roles}

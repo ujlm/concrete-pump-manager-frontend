@@ -1,20 +1,34 @@
 export type UserRole =
-  | 'super_admin'
-  | 'organization_admin'
   | 'manager'
-  | 'dispatcher'
+  | 'organization_admin'
   | 'accountant'
-  | 'pompist';
+  | 'dispatcher'
+  | 'driver';
 
 export type JobStatus =
-  | 'to_plan'
-  | 'planned'
-  | 'planned_own_concrete'
-  | 'en_route'
-  | 'arrived'
+  | 'planning'
+  | 'received'
   | 'in_progress'
   | 'completed'
+  | 'invoiced'
   | 'cancelled';
+
+export type PlanningStatus =
+  | 'planned'
+  | 'assigned';
+
+export type JobProgress =
+  | 'idle'
+  | 'underway'
+  | 'on_site'
+  | 'safety_check'
+  | 'start_installation'
+  | 'end_installation'
+  | 'start_pumping'
+  | 'end_pumping'
+  | 'fill_in_form'
+  | 'sign_form'
+  | 'leave_site';
 
 export type SubscriptionTier = 'starter' | 'professional' | 'enterprise';
 
@@ -24,29 +38,18 @@ export interface Organization {
   slug: string;
   domain?: string;
   logo_url?: string;
-  colors?: {
-    primary?: string;
-    secondary?: string;
-    accent?: string;
-  };
-  address: {
-    street: string;
-    city: string;
-    postal_code: string;
-    country: string;
-  };
-  contact_info: {
-    email: string;
-    phone: string;
-    website?: string;
-  };
-  subscription_tier: SubscriptionTier;
-  subscription_limits: {
-    max_users?: number;
-    max_jobs_per_month?: number;
-    max_storage_gb?: number;
-  };
+  primary_color?: string;
+  secondary_color?: string;
+  address_street?: string;
+  address_city?: string;
+  address_postal_code?: string;
+  address_country?: string;
+  phone?: string;
+  email?: string;
   is_active: boolean;
+  subscription_active: boolean;
+  max_users: number;
+  max_pumps: number;
   created_at: string;
   updated_at: string;
 }
@@ -57,11 +60,10 @@ export interface User {
   auth_user_id?: string; // Optional for users who don't have auth accounts (e.g., drivers)
   first_name: string;
   last_name: string;
-  email?: string; // Optional for users who won't use the software
-  roles: UserRole[];
-  phone?: string;
   is_active: boolean;
-  last_login?: string;
+  email?: string; // Optional for users who won't use the software
+  phone?: string;
+  roles: UserRole[];
   created_at: string;
   updated_at: string;
   organization?: Organization;
@@ -71,7 +73,7 @@ export interface PumpType {
   id: string;
   organization_id: string;
   name: string;
-  capacity: number;
+  capacity?: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -80,17 +82,18 @@ export interface PumpType {
 export interface PriceList {
   id: string;
   organization_id: string;
+  name: string;
+  is_active: boolean;
   cement_milk_price: number;
+  central_cleaning_rate: number;
   weekend_surcharge_percentage: number;
+  cement_bag_price: number;
+  second_pumpist_rate: number;
+  threshold_concrete_hose_length_second_pumpist: number;
   overtime_rate_multiplier: number;
   minimum_charge: number;
   travel_cost_per_km: number;
-  additional_services: {
-    crane_rental?: number;
-    cleaning_service?: number;
-    standby_hourly_rate?: number;
-  };
-  is_active: boolean;
+  additional_services: Record<string, any>;
   created_at: string;
   updated_at: string;
 }
@@ -100,17 +103,16 @@ export interface Client {
   organization_id: string;
   client_code: string;
   name: string;
-  contact_person: string;
-  email?: string;
-  phone?: string;
-  address: {
-    street: string;
-    city: string;
-    postal_code: string;
-    country: string;
-  };
   price_list_id?: string;
+  is_concrete_supplier: boolean;
   is_active: boolean;
+  phone?: string;
+  address_street?: string;
+  address_city?: string;
+  address_postal_code?: string;
+  address_country?: string;
+  company_number?: string;
+  vat_number?: string;
   created_at: string;
   updated_at: string;
   price_list?: PriceList;
@@ -119,19 +121,13 @@ export interface Client {
 export interface ConcretePlant {
   id: string;
   organization_id: string;
+  code?: string;
   name: string;
-  client_id: string;
-  address: {
-    street: string;
-    city: string;
-    postal_code: string;
-    country: string;
-  };
-  contact_info: {
-    email?: string;
-    phone?: string;
-  };
-  is_active: boolean;
+  client_id?: string;
+  address_street?: string;
+  address_city?: string;
+  address_postal_code?: string;
+  address_country?: string;
   created_at: string;
   updated_at: string;
   client?: Client;
@@ -141,37 +137,26 @@ export interface Yard {
   id: string;
   organization_id: string;
   name: string;
-  client_id: string;
+  client_id?: string;
   contact_person?: string;
-  address: {
-    street: string;
-    city: string;
-    postal_code: string;
-    country: string;
-  };
+  address_street?: string;
+  address_city?: string;
+  address_postal_code?: string;
+  address_country?: string;
+  phone?: string;
+  email?: string;
   notes?: string;
-  is_active: boolean;
   created_at: string;
   updated_at: string;
   client?: Client;
 }
 
-export interface Supplier {
+export interface InvoiceTemplate {
   id: string;
   organization_id: string;
   name: string;
-  contact_info: {
-    email?: string;
-    phone?: string;
-    contact_person?: string;
-  };
-  address: {
-    street: string;
-    city: string;
-    postal_code: string;
-    country: string;
-  };
-  is_active: boolean;
+  template_data: Record<string, any>;
+  is_default: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -180,86 +165,121 @@ export interface Machine {
   id: string;
   organization_id: string;
   name: string;
-  pompist_id?: string;
+  machine_code?: string;
+  pumpist_id?: string;
+  invoice_template_id?: string;
+  is_active: boolean;
   license_plate?: string;
   type: 'pump' | 'mixer';
   pump_type_id?: string;
-  is_active: boolean;
+  brand?: string;
+  pump_length?: number;
+  pump_width?: number;
+  pump_height?: number;
+  vertical?: number;
+  horizontal?: number;
+  pump_weight?: number;
+  pump_rhythm?: number;
+  pump_pressure?: number;
   created_at: string;
   updated_at: string;
-  pompist?: User;
+  pumpist?: User;
   pump_type?: PumpType;
+  invoice_template?: InvoiceTemplate;
 }
 
 export interface Job {
   id: string;
   organization_id: string;
-  departure_time: string;
-  start_time?: string;
-  end_time?: string;
-  pump_type_ids: string[];
+  start_time: string;
+  end_time: string;
+  planning_status: PlanningStatus;
+  job_status: JobStatus;
+  proprietary_concrete: boolean;
+  color?: string;
   client_id: string;
+  price_list_id: string;
   yard_id?: string;
-  address: {
-    street: string;
-    city: string;
-    postal_code: string;
-    country: string;
-  };
-  contact_person: string;
-  phone: string;
-  volume_m3?: number;
+  travel_time_minutes: number;
   concrete_plant_id?: string;
-  supplier_id?: string;
-  notes?: string;
-  status: JobStatus;
-  created_by: string;
-  assigned_pompist_id?: string;
-  estimated_duration_hours?: number;
-  price_quote?: number;
+  driver_id?: string;
+  machine_id?: string;
+  pump_type_requested_id?: string;
+  pump_type_id?: string;
+  volume_expected: number;
+  pipe_expected: number;
+  cement_milk: boolean;
+  central_cleaning: boolean;
+  cement_bags: number;
+  frc: boolean;
+  order_number?: string;
+  dispatcher_notes?: string;
+  pumpist_notes?: string;
   created_at: string;
   updated_at: string;
   client?: Client;
   yard?: Yard;
   concrete_plant?: ConcretePlant;
-  supplier?: Supplier;
-  assigned_pompist?: User;
-  created_by_user?: User;
-  pump_types?: PumpType[];
+  driver?: User;
+  machine?: Machine;
+  pump_type_requested?: PumpType;
+  pump_type?: PumpType;
+  price_list?: PriceList;
 }
 
 export interface JobTracking {
   id: string;
   job_id: string;
+  organization_id: string;
   actual_start_time?: string;
   actual_end_time?: string;
-  actual_volume_m3?: number;
-  pipe_length_m?: number;
-  concrete_quality?: string;
-  weather_conditions?: string;
-  performance_notes?: string;
-  efficiency_rating?: number;
+  actual_volume?: number;
+  actual_pipe?: number;
+  job_progress: JobProgress;
+  notes?: string;
+  tracked_by?: string;
   created_at: string;
   updated_at: string;
   job?: Job;
+  tracked_by_user?: User;
 }
 
-export interface InvoiceTemplate {
+export interface Invoice {
   id: string;
   organization_id: string;
-  name: string;
-  template_data: Record<string, any>;
-  is_active: boolean;
+  job_id?: string;
+  client_id: string;
+  invoice_number: string;
+  invoice_date: string;
+  due_date?: string;
+  status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
+  subtotal: number;
+  tax_amount: number;
+  total_amount: number;
+  notes?: string;
   created_at: string;
   updated_at: string;
+  job?: Job;
+  client?: Client;
+}
+
+export interface InvoiceLineItem {
+  id: string;
+  invoice_id: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  created_at: string;
 }
 
 export interface AuditLog {
   id: string;
+  organization_id: string;
   user_id?: string;
-  organization_id?: string;
-  action: string;
+  action: 'CREATE' | 'UPDATE' | 'DELETE';
   table_name: string;
+  record_id: string;
   old_values?: Record<string, any>;
   new_values?: Record<string, any>;
   ip_address?: string;

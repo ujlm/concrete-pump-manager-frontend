@@ -76,8 +76,8 @@ export function QuickActionsWidget({ userRoles }: QuickActionsWidgetProps) {
 
   const availableActions = quickActions.filter(action => hasRole(action.roles));
 
-  // Special actions for pompist role
-  const pompistActions = [
+  // Special actions for driver role
+  const driverActions = [
     {
       label: 'My Jobs Today',
       href: '/protected/jobs?filter=assigned',
@@ -94,8 +94,8 @@ export function QuickActionsWidget({ userRoles }: QuickActionsWidgetProps) {
     },
   ];
 
-  const actionsToShow = userRoles.includes('pompist') && !hasRole(['dispatcher', 'manager', 'organization_admin'])
-    ? pompistActions
+  const actionsToShow = userRoles.includes('driver') && !hasRole(['dispatcher', 'manager', 'organization_admin'])
+    ? driverActions
     : availableActions.slice(0, 6); // Show max 6 actions
 
   return (

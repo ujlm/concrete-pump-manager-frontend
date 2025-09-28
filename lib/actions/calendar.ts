@@ -5,6 +5,7 @@ import { getCurrentUser } from '@/lib/actions/dashboard';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import type { Job, Driver, JobStatus } from '@/lib/types/calendar';
+import { calculateDepartureTime } from '@/lib/types/calendar';
 
 // Helper function to check user permissions
 async function checkCalendarPermissions() {
@@ -33,13 +34,13 @@ export async function getJobsForDate(organizationSlug: string, date: string) {
       .select(`
         *,
         client:clients(*),
-        pumpist:users!jobs_pumpist_id_fkey(*),
+        driver:users!jobs_driver_id_fkey(*),
         pump_type:pump_types!jobs_pump_type_id_fkey(*)
       `)
       .eq('organization_id', user.organization_id)
       .gte('start_time', `${date}T00:00:00`)
       .lt('start_time', `${date}T23:59:59`)
-      .order('departure_time', { ascending: true, nullsFirst: false });
+      .order('start_time', { ascending: true, nullsFirst: false });
 
     if (error) throw error;
 
@@ -47,14 +48,17 @@ export async function getJobsForDate(organizationSlug: string, date: string) {
     const transformedJobs = jobs?.map(job => ({
       ...job,
       // Convert timestamps to time strings for the frontend
-      departure_time: job.departure_time ? new Date(job.departure_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : null,
       start_time: job.start_time ? new Date(job.start_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : null,
       end_time: job.end_time ? new Date(job.end_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : null,
       // Map database fields to expected interface fields
-      volume_m3: job.expected_volume,
-      travel_time_minutes: null, // Not in schema yet
+      volume_expected: job.volume_expected,
+      pipe_expected: job.pipe_expected,
+      travel_time_minutes: job.travel_time_minutes,
       notes: job.dispatcher_notes || '',
-      is_concrete_supplier_job: false, // Not in schema yet
+      proprietary_concrete: job.proprietary_concrete || false,
+      // Map pumpist to driver for backward compatibility
+      pumpist_id: job.driver_id,
+      pumpist: job.driver,
     })) || [];
 
     return transformedJobs as Job[];
@@ -76,7 +80,7 @@ export async function getActiveDrivers(organizationSlug: string) {
       .from('users')
       .select('*')
       .eq('organization_id', user.organization_id)
-      .contains('roles', ['pompist'])
+      .contains('roles', ['driver'])
       .eq('is_active', true)
       .order('first_name', { ascending: true });
 
@@ -95,26 +99,59 @@ export async function createJob(organizationSlug: string, jobData: Partial<Job>)
   const supabase = await createClient();
 
   try {
+    // Get the appropriate price list ID
+    let priceListId = jobData.price_list_id; // First, use the explicitly selected price list
+    
+    // If no price list selected, try to get the client's default price list
+    if (!priceListId && jobData.client_id) {
+      const { data: client } = await supabase
+        .from('clients')
+        .select('price_list_id')
+        .eq('id', jobData.client_id)
+        .eq('organization_id', user.organization_id)
+        .single();
+      
+      priceListId = client?.price_list_id;
+    }
+    
+    // If still no price list, get the organization's first active price list
+    if (!priceListId) {
+      const { data: priceList } = await supabase
+        .from('price_lists')
+        .select('id')
+        .eq('organization_id', user.organization_id)
+        .eq('is_active', true)
+        .limit(1)
+        .single();
+      
+      priceListId = priceList?.id;
+    }
+    
+    // If still no price list, we'll need to create a default one or make it optional
+    if (!priceListId) {
+      throw new Error('No price list found. Please create a price list first in Settings > Price Lists.');
+    }
+
     // Transform frontend data to database schema
     const dbJobData = {
       organization_id: user.organization_id,
       client_id: jobData.client_id,
-      pumpist_id: jobData.pumpist_id,
+      driver_id: jobData.pumpist_id || jobData.driver_id, // Map pumpist_id from modal to driver_id
       pump_type_id: jobData.pump_type_id,
-      status: jobData.status || 'to_plan',
-      departure_time: jobData.departure_time ? `${jobData.job_date || new Date().toISOString().split('T')[0]}T${jobData.departure_time}:00` : null,
+      job_status: jobData.status || jobData.job_status || 'planning',
+      planning_status: 'planned',
       start_time: jobData.start_time ? `${jobData.job_date || new Date().toISOString().split('T')[0]}T${jobData.start_time}:00` : new Date().toISOString(),
       end_time: jobData.end_time ? `${jobData.job_date || new Date().toISOString().split('T')[0]}T${jobData.end_time}:00` : new Date().toISOString(),
       address_street: jobData.address_street || '',
       address_city: jobData.address_city,
       address_postal_code: jobData.address_postal_code,
-      expected_volume: jobData.volume_m3 || 0,
-      pipe_length: jobData.pipe_length || 0,
-      construction_type: 'Standard', // Default value
+      volume_expected: jobData.volume_m3 || jobData.volume_expected || 0,
+      pipe_expected: jobData.pipe_length || jobData.pipe_expected || 35,
+      travel_time_minutes: jobData.travel_time_minutes || 0,
+      proprietary_concrete: jobData.proprietary_concrete || false,
       dispatcher_notes: jobData.notes,
       pumpist_notes: jobData.pumpist_notes,
-      // Required fields with defaults
-      price_list_id: '00000000-0000-0000-0000-000000000001', // We'll need a default price list
+      price_list_id: priceListId,
     };
 
     const { data: job, error } = await supabase
@@ -123,15 +160,34 @@ export async function createJob(organizationSlug: string, jobData: Partial<Job>)
       .select(`
         *,
         client:clients(*),
-        pumpist:users!jobs_pumpist_id_fkey(*),
+        driver:users!jobs_driver_id_fkey(*),
         pump_type:pump_types!jobs_pump_type_id_fkey(*)
       `)
       .single();
 
     if (error) throw error;
 
+    // Transform the job data to match frontend expectations (same as getJobsForDate)
+    const transformedJob = {
+      ...job,
+      // Convert timestamps to time strings for the frontend
+      start_time: job.start_time ? new Date(job.start_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : null,
+      end_time: job.end_time ? new Date(job.end_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : null,
+      // Extract date for job_date field
+      job_date: job.start_time ? new Date(job.start_time).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      // Map database fields to expected interface fields
+      volume_expected: job.volume_expected,
+      pipe_expected: job.pipe_expected,
+      travel_time_minutes: job.travel_time_minutes,
+      notes: job.dispatcher_notes || '',
+      proprietary_concrete: job.proprietary_concrete || false,
+      // Map pumpist to driver for backward compatibility
+      pumpist_id: job.driver_id,
+      pumpist: job.driver,
+    };
+
     revalidatePath(`/${organizationSlug}/planning`);
-    return { success: true, data: job as Job };
+    return { success: true, data: transformedJob as Job };
   } catch (error) {
     console.error('Error creating job:', error);
     return {
@@ -143,14 +199,59 @@ export async function createJob(organizationSlug: string, jobData: Partial<Job>)
 
 // Update an existing job
 export async function updateJob(organizationSlug: string, jobId: string, jobData: Partial<Job>) {
+  console.log('🔧 updateJob called with:', {
+    organizationSlug,
+    jobId,
+    jobData
+  });
+
   const user = await checkCalendarPermissions();
   const supabase = await createClient();
 
   try {
+    // Transform time strings to full timestamps if needed
+    const updateData = { ...jobData };
+    
+    // Get current job to preserve date when updating times
+    if (jobData.start_time || jobData.end_time) {
+      const { data: currentJob, error: fetchError } = await supabase
+        .from('jobs')
+        .select('start_time, end_time')
+        .eq('id', jobId)
+        .eq('organization_id', user.organization_id)
+        .single();
+
+      if (fetchError || !currentJob) {
+        throw new Error('Job not found');
+      }
+
+      console.log('📋 Current job timestamps:', {
+        start_time: currentJob.start_time,
+        end_time: currentJob.end_time
+      });
+
+      // Convert time strings to full timestamps
+      if (jobData.start_time && jobData.start_time.includes(':') && !jobData.start_time.includes('T')) {
+        const currentDate = new Date(currentJob.start_time);
+        const jobDate = currentDate.toISOString().split('T')[0];
+        updateData.start_time = `${jobDate}T${jobData.start_time}:00`;
+        console.log('🕐 Converted start_time:', updateData.start_time);
+      }
+
+      if (jobData.end_time && jobData.end_time.includes(':') && !jobData.end_time.includes('T')) {
+        const currentDate = new Date(currentJob.end_time);
+        const jobDate = currentDate.toISOString().split('T')[0];
+        updateData.end_time = `${jobDate}T${jobData.end_time}:00`;
+        console.log('🕐 Converted end_time:', updateData.end_time);
+      }
+    }
+
+    console.log('💾 Final update data:', updateData);
+
     const { data: job, error } = await supabase
       .from('jobs')
       .update({
-        ...jobData,
+        ...updateData,
         updated_at: new Date().toISOString(),
       })
       .eq('id', jobId)
@@ -158,15 +259,47 @@ export async function updateJob(organizationSlug: string, jobId: string, jobData
       .select(`
         *,
         client:clients(*),
-        pumpist:users!jobs_pumpist_id_fkey(*),
+        driver:users!jobs_driver_id_fkey(*),
         pump_type:pump_types!jobs_pump_type_id_fkey(*)
       `)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Database update error:', error);
+      throw error;
+    }
+
+    console.log('✅ Database update successful, raw job data:', job);
+
+    // Transform the job data to match frontend expectations (same as createJob and moveJob)
+    const transformedJob = {
+      ...job,
+      // Convert timestamps to time strings for the frontend
+      start_time: job.start_time ? new Date(job.start_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : null,
+      end_time: job.end_time ? new Date(job.end_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : null,
+      // Extract date for job_date field
+      job_date: job.start_time ? new Date(job.start_time).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      // Map database fields to expected interface fields
+      volume_expected: job.volume_expected,
+      pipe_expected: job.pipe_expected,
+      travel_time_minutes: job.travel_time_minutes,
+      notes: job.dispatcher_notes || '',
+      proprietary_concrete: job.proprietary_concrete || false,
+      // Map pumpist to driver for backward compatibility
+      pumpist_id: job.driver_id,
+      pumpist: job.driver,
+    };
+
+    console.log('🎯 Transformed job for frontend:', {
+      id: transformedJob.id,
+      start_time: transformedJob.start_time,
+      end_time: transformedJob.end_time,
+      driver_id: transformedJob.driver_id,
+      pumpist_id: transformedJob.pumpist_id
+    });
 
     revalidatePath(`/${organizationSlug}/planning`);
-    return { success: true, data: job as Job };
+    return { success: true, data: transformedJob as Job };
   } catch (error) {
     console.error('Error updating job:', error);
     return {
@@ -183,6 +316,13 @@ export async function moveJob(
   newStartTime: string,
   newDriverId?: string
 ) {
+  console.log('🚀 moveJob called with:', {
+    organizationSlug,
+    jobId,
+    newStartTime,
+    newDriverId
+  });
+
   const user = await checkCalendarPermissions();
   const supabase = await createClient();
 
@@ -196,33 +336,50 @@ export async function moveJob(
       .single();
 
     if (fetchError || !currentJob) {
+      console.error('❌ Job not found:', { fetchError, jobId });
       throw new Error('Job not found');
     }
 
+    console.log('📋 Current job data:', {
+      id: currentJob.id,
+      start_time: currentJob.start_time,
+      end_time: currentJob.end_time,
+      driver_id: currentJob.driver_id
+    });
+
     // Calculate duration and new end time
-    const currentStart = currentJob.departure_time || currentJob.start_time;
-    const currentEnd = currentJob.end_time;
-    let newEndTime: string | undefined;
+    // Parse current timestamps to get duration
+    const currentStartDate = new Date(currentJob.start_time);
+    const currentEndDate = new Date(currentJob.end_time);
+    const durationMs = currentEndDate.getTime() - currentStartDate.getTime();
 
-    if (currentStart && currentEnd) {
-      const currentStartMinutes = parseInt(currentStart.split(':')[0]) * 60 + parseInt(currentStart.split(':')[1]);
-      const currentEndMinutes = parseInt(currentEnd.split(':')[0]) * 60 + parseInt(currentEnd.split(':')[1]);
-      const durationMinutes = currentEndMinutes - currentStartMinutes;
+    console.log('⏰ Time calculations:', {
+      currentStartDate: currentStartDate.toISOString(),
+      currentEndDate: currentEndDate.toISOString(),
+      durationMs,
+      durationMinutes: durationMs / (1000 * 60)
+    });
 
-      const newStartMinutes = parseInt(newStartTime.split(':')[0]) * 60 + parseInt(newStartTime.split(':')[1]);
-      const newEndMinutes = newStartMinutes + durationMinutes;
+    // Create new timestamps for the same date but different time
+    const jobDate = currentStartDate.toISOString().split('T')[0]; // Get current job date
+    const newStartTimestamp = `${jobDate}T${newStartTime}:00`;
+    const newStartDate = new Date(newStartTimestamp);
+    const newEndDate = new Date(newStartDate.getTime() + durationMs);
 
-      const hours = Math.floor(newEndMinutes / 60);
-      const minutes = newEndMinutes % 60;
-      newEndTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-    }
+    console.log('🔄 New time calculations:', {
+      jobDate,
+      newStartTimestamp,
+      newStartDate: newStartDate.toISOString(),
+      newEndDate: newEndDate.toISOString()
+    });
 
-    const updateData: Partial<Job> = {
-      departure_time: currentJob.departure_time ? newStartTime : undefined,
-      start_time: !currentJob.departure_time ? newStartTime : currentJob.start_time,
-      end_time: newEndTime,
-      pumpist_id: newDriverId || currentJob.pumpist_id,
+    const updateData = {
+      start_time: newStartDate.toISOString(),
+      end_time: newEndDate.toISOString(),
+      driver_id: newDriverId || currentJob.driver_id,
     };
+
+    console.log('💾 Update data:', updateData);
 
     const { data: job, error } = await supabase
       .from('jobs')
@@ -232,17 +389,49 @@ export async function moveJob(
       .select(`
         *,
         client:clients(*),
-        pumpist:users!jobs_pumpist_id_fkey(*),
+        driver:users!jobs_driver_id_fkey(*),
         pump_type:pump_types!jobs_pump_type_id_fkey(*)
       `)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Database update error:', error);
+      throw error;
+    }
+
+    console.log('✅ Database update successful, raw job data:', job);
+
+    // Transform the job data to match frontend expectations (same as createJob)
+    const transformedJob = {
+      ...job,
+      // Convert timestamps to time strings for the frontend
+      start_time: job.start_time ? new Date(job.start_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : null,
+      end_time: job.end_time ? new Date(job.end_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : null,
+      // Extract date for job_date field
+      job_date: job.start_time ? new Date(job.start_time).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      // Map database fields to expected interface fields
+      volume_expected: job.volume_expected,
+      pipe_expected: job.pipe_expected,
+      travel_time_minutes: job.travel_time_minutes,
+      notes: job.dispatcher_notes || '',
+      proprietary_concrete: job.proprietary_concrete || false,
+      // Map pumpist to driver for backward compatibility
+      pumpist_id: job.driver_id,
+      pumpist: job.driver,
+    };
+
+    console.log('🎯 Transformed job for frontend:', {
+      id: transformedJob.id,
+      start_time: transformedJob.start_time,
+      end_time: transformedJob.end_time,
+      driver_id: transformedJob.driver_id,
+      pumpist_id: transformedJob.pumpist_id
+    });
 
     revalidatePath(`/${organizationSlug}/planning`);
-    return { success: true, data: job as Job };
+    return { success: true, data: transformedJob as Job };
   } catch (error) {
-    console.error('Error moving job:', error);
+    console.error('❌ Error moving job:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to move job'
@@ -284,7 +473,7 @@ export async function updateJobStatus(organizationSlug: string, jobId: string, s
     const { data: job, error } = await supabase
       .from('jobs')
       .update({
-        status,
+        job_status: status,
         updated_at: new Date().toISOString(),
       })
       .eq('id', jobId)
@@ -292,7 +481,7 @@ export async function updateJobStatus(organizationSlug: string, jobId: string, s
       .select(`
         *,
         client:clients(*),
-        pumpist:users!jobs_pumpist_id_fkey(*),
+        driver:users!jobs_driver_id_fkey(*),
         pump_type:pump_types!jobs_pump_type_id_fkey(*)
       `)
       .single();
@@ -320,7 +509,7 @@ export async function getOrganizationClientsForCalendar(organizationSlug: string
   try {
     const { data: clients, error } = await supabase
       .from('clients')
-      .select('id, name, phone, address_city')
+      .select('id, name, phone, address_city, price_list_id')
       .eq('organization_id', user.organization_id)
       .order('name', { ascending: true });
 

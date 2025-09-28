@@ -24,7 +24,7 @@ export const userSchema = z.object({
   last_name: z.string().min(1, 'Last name is required').max(100, 'Last name must be less than 100 characters'),
   email: z.string().email('Must be a valid email address').optional().or(z.literal('')),
   phone: z.string().optional(),
-  roles: z.array(z.enum(['pompist', 'dispatcher', 'accountant', 'manager', 'organization_admin']))
+  roles: z.array(z.enum(['driver', 'dispatcher', 'accountant', 'manager', 'organization_admin']))
     .min(1, 'At least one role must be selected'),
   is_active: z.boolean().default(true),
 });
@@ -35,7 +35,7 @@ export const userInviteSchema = z.object({
   email: z.string().email('Must be a valid email address'),
   first_name: z.string().min(1, 'First name is required').max(100, 'First name must be less than 100 characters'),
   last_name: z.string().min(1, 'Last name is required').max(100, 'Last name must be less than 100 characters'),
-  roles: z.array(z.enum(['pompist', 'dispatcher', 'accountant', 'manager', 'organization_admin']))
+  roles: z.array(z.enum(['driver', 'dispatcher', 'accountant', 'manager', 'organization_admin']))
     .min(1, 'At least one role must be selected'),
 });
 
@@ -44,7 +44,7 @@ export const userAddSchema = z.object({
   first_name: z.string().min(1, 'First name is required').max(100, 'First name must be less than 100 characters'),
   last_name: z.string().min(1, 'Last name is required').max(100, 'Last name must be less than 100 characters'),
   phone: z.string().optional(),
-  roles: z.array(z.enum(['pompist', 'dispatcher', 'accountant', 'manager', 'organization_admin']))
+  roles: z.array(z.enum(['driver', 'dispatcher', 'accountant', 'manager', 'organization_admin']))
     .min(1, 'At least one role must be selected'),
 });
 

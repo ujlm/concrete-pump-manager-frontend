@@ -29,8 +29,8 @@ interface AddUserDialogProps {
 
 const roles = [
   {
-    value: 'pompist',
-    label: 'Pompist',
+    value: 'driver',
+    label: 'driver',
     description: 'Can manage job assignments and pump operations',
     icon: User,
   },
@@ -75,7 +75,7 @@ export function AddUserDialog({
       last_name: '',
       email: '',
       phone: '',
-      roles: ['pompist'],
+      roles: ['driver'],
     },
   });
 

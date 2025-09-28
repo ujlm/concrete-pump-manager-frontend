@@ -17,7 +17,8 @@ interface DriverColumnProps {
   onCreateJob: (time: string, driverId?: string) => void;
   onCreateJobWithTimeRange?: (startTime: string, endTime: string, driverId?: string) => void;
   onJobMove: (jobId: string, newTime: string, newDriverId?: string) => void;
-  onStatusChange: (jobId: string, newStatus: CalendarJob['status']) => void;
+  onJobResize?: (jobId: string, newStartTime?: string, newEndTime?: string) => void;
+  onStatusChange: (jobId: string, newStatus: CalendarJob['job_status']) => void;
   canManageJobs: boolean;
   allowOverlaps: boolean;
   sectionType: string;
@@ -44,6 +45,7 @@ export function DriverColumn({
   onCreateJob,
   onCreateJobWithTimeRange,
   onJobMove,
+  onJobResize,
   onStatusChange,
   canManageJobs,
   allowOverlaps,
@@ -56,10 +58,19 @@ export function DriverColumn({
 }: DriverColumnProps) {
   const [{ isOver }, drop] = useDrop({
     accept: 'job',
-    drop: (item, monitor) => ({
-      driverId: isUnassigned ? undefined : driver.id,
-      time: '06:00', // Default time, will be overridden by specific time slot
-    }),
+    drop: (item, monitor) => {
+      // If the drop was already handled by a child component (TimeSlot), don't override it
+      if (monitor.didDrop()) {
+        console.log('🔄 DriverColumn: Drop already handled by child, skipping');
+        return;
+      }
+      
+      console.log('📋 DriverColumn: Handling drop with default time');
+      return {
+        driverId: isUnassigned ? undefined : driver.id,
+        time: '06:00', // Default time, only used if not dropped on specific time slot
+      };
+    },
     collect: (monitor) => ({
       isOver: monitor.isOver(),
     }),
@@ -153,6 +164,7 @@ export function DriverColumn({
                 onClick={onJobClick}
                 onDoubleClick={onJobDoubleClick}
                 onStatusChange={onStatusChange}
+                onJobResize={onJobResize}
                 canManageJobs={canManageJobs}
                 allowOverlaps={allowOverlaps}
               />

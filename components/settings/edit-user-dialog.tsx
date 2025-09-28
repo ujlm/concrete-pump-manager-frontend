@@ -39,8 +39,8 @@ interface EditUserDialogProps {
 
 const roles = [
   {
-    value: 'pompist',
-    label: 'Pompist',
+    value: 'driver',
+    label: 'driver',
     description: 'Can manage job assignments and pump operations',
     icon: User,
   },

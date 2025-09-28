@@ -20,7 +20,8 @@ interface CalendarGridProps {
   onCreateJob: (time: string, driverId?: string) => void;
   onCreateJobWithTimeRange?: (startTime: string, endTime: string, driverId?: string) => void;
   onJobMove: (jobId: string, newTime: string, newDriverId?: string) => void;
-  onStatusChange: (jobId: string, newStatus: CalendarJob['status']) => void;
+  onJobResize?: (jobId: string, newStartTime?: string, newEndTime?: string) => void;
+  onStatusChange: (jobId: string, newStatus: CalendarJob['job_status']) => void;
   isLoading: boolean;
   currentUserRoles: string[];
   clearDragSelection?: boolean; // Signal to clear the drag selection
@@ -38,6 +39,7 @@ export function CalendarGrid(props: CalendarGridProps) {
     onCreateJob,
     onCreateJobWithTimeRange,
     onJobMove,
+    onJobResize,
     onStatusChange,
     isLoading,
     currentUserRoles,
@@ -137,9 +139,9 @@ export function CalendarGrid(props: CalendarGridProps) {
   const getJobsForView = (viewType: 'planned' | 'assigned') => {
     return jobs.filter(job => {
       if (viewType === 'planned') {
-        return job.status === 'to_plan';
+        return job.job_status === 'planning';
       } else {
-        return job.status !== 'to_plan';
+        return job.job_status !== 'planning';
       }
     });
   };
@@ -243,6 +245,7 @@ export function CalendarGrid(props: CalendarGridProps) {
                 onCreateJob={onCreateJob}
                 onCreateJobWithTimeRange={onCreateJobWithTimeRange}
                 onJobMove={onJobMove}
+                onJobResize={onJobResize}
                 onStatusChange={onStatusChange}
                 canManageJobs={canManageJobs}
                 allowOverlaps={false}
@@ -277,6 +280,7 @@ export function CalendarGrid(props: CalendarGridProps) {
                 onCreateJob={onCreateJob}
                 onCreateJobWithTimeRange={onCreateJobWithTimeRange}
                 onJobMove={onJobMove}
+                onJobResize={onJobResize}
                 onStatusChange={onStatusChange}
                 canManageJobs={canManageJobs}
                 allowOverlaps={true}
@@ -348,6 +352,7 @@ export function CalendarGrid(props: CalendarGridProps) {
           onCreateJob={onCreateJob}
           onCreateJobWithTimeRange={onCreateJobWithTimeRange}
           onJobMove={onJobMove}
+          onJobResize={onJobResize}
           onStatusChange={onStatusChange}
           canManageJobs={canManageJobs}
           allowOverlaps={view === 'planned'}
@@ -373,7 +378,8 @@ interface CalendarSectionProps {
   onCreateJob: (time: string, driverId?: string) => void;
   onCreateJobWithTimeRange?: (startTime: string, endTime: string, driverId?: string) => void;
   onJobMove: (jobId: string, newTime: string, newDriverId?: string) => void;
-  onStatusChange: (jobId: string, newStatus: CalendarJob['status']) => void;
+  onJobResize?: (jobId: string, newStartTime?: string, newEndTime?: string) => void;
+  onStatusChange: (jobId: string, newStatus: CalendarJob['job_status']) => void;
   canManageJobs: boolean;
   allowOverlaps: boolean;
   sectionType: string;
@@ -402,6 +408,7 @@ function CalendarSection({
   onCreateJob,
   onCreateJobWithTimeRange,
   onJobMove,
+  onJobResize,
   onStatusChange,
   canManageJobs,
   allowOverlaps,
@@ -414,9 +421,24 @@ function CalendarSection({
   const [, drop] = useDrop({
     accept: 'job',
     drop: (item: { id: string; type: string }, monitor) => {
+      console.log('📦 CalendarSection drop triggered:', {
+        item,
+        isOver: monitor.isOver(),
+        didDrop: monitor.didDrop()
+      });
+      
       const targetElement = monitor.getDropResult() as DropResult;
-      if (targetElement?.time && targetElement?.driverId) {
+      console.log('🎯 Drop target element:', targetElement);
+      
+      if (targetElement?.time && (targetElement?.driverId !== undefined)) {
+        console.log('✅ Valid drop target, calling onJobMove');
         onJobMove(item.id, targetElement.time, targetElement.driverId);
+      } else if (targetElement?.time) {
+        // Handle case where driverId is undefined (unassigned column)
+        console.log('✅ Valid drop target (unassigned), calling onJobMove');
+        onJobMove(item.id, targetElement.time, targetElement.driverId);
+      } else {
+        console.log('❌ Invalid drop target - missing time', { targetElement });
       }
     },
   });
@@ -483,6 +505,7 @@ function CalendarSection({
             onCreateJob={onCreateJob}
             onCreateJobWithTimeRange={onCreateJobWithTimeRange}
             onJobMove={onJobMove}
+            onJobResize={onJobResize}
             onStatusChange={onStatusChange}
             canManageJobs={canManageJobs}
             allowOverlaps={allowOverlaps}

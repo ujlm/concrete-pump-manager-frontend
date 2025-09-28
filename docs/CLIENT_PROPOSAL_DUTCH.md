@@ -71,8 +71,8 @@ Quantum Noodle BV verbindt zich ertoe een complete webapplicatie te ontwikkelen 
 - **Berichten:** WhatsApp API
 
 ### Beveiliging & Toegang
-- **Rollen:** Pompist, Manager, Dispatcher, Accountant
-- **Pompisten:** Alleen eigen rooster bekijken
+- **Rollen:** driver, Manager, Dispatcher, Accountant
+- **driveren:** Alleen eigen rooster bekijken
 - **Andere gebruikers:** Volledige lees/schrijftoegang, behalve tot gebruikersbeheer
 - **Gebruikersbeheer:** Alleen Managers
 

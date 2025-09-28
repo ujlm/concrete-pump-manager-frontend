@@ -11,7 +11,7 @@ interface ActivePumpsWidgetProps {
     name: string;
     status: 'active' | 'idle' | 'maintenance';
     location?: string;
-    pompist?: {
+    driver?: {
       first_name: string;
       last_name: string;
     };
@@ -79,9 +79,9 @@ export function ActivePumpsWidget({ count, pumps = [], isLoading, error }: Activ
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium truncate">{pump.name}</div>
-                    {pump.pompist && (
+                    {pump.driver && (
                       <div className="text-xs text-muted-foreground truncate">
-                        {pump.pompist.first_name} {pump.pompist.last_name}
+                        {pump.driver.first_name} {pump.driver.last_name}
                       </div>
                     )}
                   </div>

@@ -129,7 +129,7 @@ Three distinct calendar views with drivers as columns and time slots as rows (15
 | `end_time` | DateTime | User-set job end | Min 1 hour duration |
 | `pump_type` | Foreign Key | Selected from pump types | Required |
 | `pump_type_requested` | Foreign Key | May differ from pump_type | Optional |
-| `pumpist` | Foreign Key | Selected from users (role: Pompist) | Required |
+| `pumpist` | Foreign Key | Selected from users (role: driver) | Required |
 | `client` | Foreign Key | Selected from clients | Required |
 | `price_list` | Foreign Key | Selected from price lists | Required |
 | `address` | String | Google Maps autocomplete | Required |
@@ -236,7 +236,7 @@ Three distinct calendar views with drivers as columns and time slots as rows (15
 | `is_active` | Boolean | Active status |
 | `email` | String | Optional email |
 | `phone` | String | Optional phone |
-| `roles` | Array | ["Pompist", "Manager", "Dispatcher", "Accountant"] |
+| `roles` | Array | ["driver", "Manager", "Dispatcher", "Accountant"] |
 | `created_at` | DateTime | Auto-generated |
 | `updated_at` | DateTime | Auto-generated |
 
@@ -247,7 +247,7 @@ Three distinct calendar views with drivers as columns and time slots as rows (15
 | `organization_id` | UUID | Foreign Key to organizations | Required |
 | `name` | String | Unique machine name within organization |
 | `machine_code` | String | Machine identifier |
-| `pumpist` | Foreign Key | Linked user (role: Pompist) |
+| `pumpist` | Foreign Key | Linked user (role: driver) |
 | `invoice_template` | Foreign Key | Linked invoice template |
 | `is_active` | Boolean | Active status |
 | `license_plate` | String | License plate (flexible format for different countries) |
@@ -393,7 +393,7 @@ Three distinct calendar views with drivers as columns and time slots as rows (15
 #### Permission Matrix
 | Role | Planned Jobs | Assigned Jobs | User Management | Organization Settings | Job Tracking | Audit Logs | All Other Data |
 |------|-------------|---------------|-----------------|---------------------|--------------|------------|----------------|
-| Pompist | View Own Org | View Own Org | None | None | Update Own Jobs | None | Read Only (Own Org) |
+| driver | View Own Org | View Own Org | None | None | Update Own Jobs | None | Read Only (Own Org) |
 | Dispatcher | Full Access (Own Org) | Full Access (Own Org) | None | None | Full Access (Own Org) | Read Only | Full Access (Own Org) |
 | Manager | Full Access (Own Org) | Full Access (Own Org) | Full Access (Own Org) | Read Only | Full Access (Own Org) | Full Access (Own Org) | Full Access (Own Org) |
 | Accountant | Read Only (Own Org) | Read Only (Own Org) | None | None | Read Only (Own Org) | Read Only (Own Org) | Full Access (Own Org) |

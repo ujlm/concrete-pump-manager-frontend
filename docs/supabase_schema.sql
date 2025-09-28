@@ -38,13 +38,13 @@ CREATE TABLE organizations (
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    auth_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    auth_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     is_active BOOLEAN DEFAULT true,
     email VARCHAR(255),
     phone VARCHAR(50),
-    roles TEXT[] DEFAULT '{}',
+    roles TEXT[] DEFAULT '{}', -- manager, organization_admin, accountant, dispatcher, driver
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(auth_user_id, organization_id)
@@ -57,7 +57,7 @@ CREATE TABLE users (
 CREATE TABLE pump_types (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
+    name VARCHAR(100) NOT NULL, -- Pomp 32, Pomp 36
     capacity INTEGER, -- m³/hour
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -72,11 +72,15 @@ CREATE TABLE pump_types (
 CREATE TABLE price_lists (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
+    name VARCHAR(100) NOT NULL, -- eg Particulier_2025
     is_active BOOLEAN DEFAULT true,
-    cement_milk_price DECIMAL(10,2),
-    weekend_surcharge_percentage INTEGER DEFAULT 0, -- Percentage
-    overtime_rate_multiplier DECIMAL(3,2) DEFAULT 1.5,
+    cement_milk_price DECIMAL(10,2) DEFAULT 7.50,
+    central_cleaning_rate DECIMAL(10,2) DEFAULT 0.00,
+    weekend_surcharge_percentage INTEGER DEFAULT 50, -- Percentage
+    cement_bag_price DECIMAL(10,2) DEFAULT 7.50,
+    second_pumpist_rate DECIMAL(10,2) DEFAULT 70.00,
+    threshold_concrete_hose_length_second_pumpist DECIMAL(10,2) DEFAULT 80, -- in meters, when concrete hose length is longer than this, second pumpist is charged
+    overtime_rate_multiplier DECIMAL(3,2) DEFAULT 1,
     minimum_charge DECIMAL(10,2) DEFAULT 0,
     travel_cost_per_km DECIMAL(10,2) DEFAULT 0,
     additional_services JSONB DEFAULT '{}', -- Store crane_rental, cleaning_service, standby_hourly_rate
@@ -92,29 +96,33 @@ CREATE TABLE price_lists (
 CREATE TABLE clients (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    client_code VARCHAR(50) NOT NULL,
-    name VARCHAR(255) NOT NULL,
+    client_code VARCHAR(50) NOT NULL, -- can be different from id to match the client code in the existing administration of the client
+    name VARCHAR(255) NOT NULL, -- eg Demo Construction Ltd
     price_list_id UUID REFERENCES price_lists(id),
     is_concrete_supplier BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
     phone VARCHAR(50),
     address_street VARCHAR(255),
     address_city VARCHAR(100),
     address_postal_code VARCHAR(10),
     address_country VARCHAR(100) DEFAULT 'Belgium',
+    company_number VARCHAR(50),
+    vat_number VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(organization_id, client_code)
 );
 
 -- ============================================================================
--- 6. CONCRETE PLANTS TABLE
+-- 6. CONCRETE PLANTS TABLE ("betoncentrale" in Dutch)
 -- ============================================================================
 
 CREATE TABLE concrete_plants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+    code VARCHAR(50), -- can be different from id to match the client code in the existing administration of the client
+    name VARCHAR(255) NOT NULL, -- eg DSV Aarschot
+    client_id UUID REFERENCES clients(id) ON DELETE SET NULL, -- client linked to the concrete plant eg DSV Aarschot
     address_street VARCHAR(255),
     address_city VARCHAR(100),
     address_postal_code VARCHAR(10),
@@ -124,45 +132,27 @@ CREATE TABLE concrete_plants (
 );
 
 -- ============================================================================
--- 7. YARDS TABLE
+-- 7. YARDS TABLE ("werf" in Dutch)
 -- ============================================================================
 
 CREATE TABLE yards (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL, -- name of the yard
     client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
-    contact_person VARCHAR(255),
+    contact_person VARCHAR(255), -- name or address of the contact person
     address_street VARCHAR(255),
     address_city VARCHAR(100),
     address_postal_code VARCHAR(10),
     address_country VARCHAR(100) DEFAULT 'Belgium',
     phone VARCHAR(50),
     email VARCHAR(255),
+    notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(organization_id, name)
 );
 
--- ============================================================================
--- 8. SUPPLIERS TABLE
--- ============================================================================
-
-CREATE TABLE suppliers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    contact_person VARCHAR(255),
-    phone VARCHAR(50),
-    email VARCHAR(255),
-    address_street VARCHAR(255),
-    address_city VARCHAR(100),
-    address_postal_code VARCHAR(10),
-    address_country VARCHAR(100) DEFAULT 'Belgium',
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
 
 -- ============================================================================
 -- 9. INVOICE TEMPLATES TABLE
@@ -185,14 +175,23 @@ CREATE TABLE invoice_templates (
 CREATE TABLE machines (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    machine_code VARCHAR(50),
+    name VARCHAR(255) NOT NULL, -- eg Pomp 36 - Geert
+    machine_code VARCHAR(50), -- P36-1
     pumpist_id UUID REFERENCES users(id) ON DELETE SET NULL,
     invoice_template_id UUID REFERENCES invoice_templates(id) ON DELETE SET NULL,
     is_active BOOLEAN DEFAULT true,
-    license_plate VARCHAR(10),
+    license_plate VARCHAR(10), -- eg 1-ABC-123
     type VARCHAR(20) CHECK (type IN ('pump', 'mixer')),
-    pump_type_id UUID REFERENCES pump_types(id) ON DELETE SET NULL,
+    pump_type_id UUID REFERENCES pump_types(id) ON DELETE SET NULL, -- eg Pomp 36
+    brand VARCHAR(50), -- eg Putzmeister
+    pump_length INTEGER, -- eg 10.5 (in meters)
+    pump_width INTEGER, -- eg 2.5 (in meters)
+    pump_height INTEGER, -- eg 4 (in meters)
+    vertical INTEGER, -- eg 32 (in meters)
+    horizontal INTEGER, -- eg 28 (in meters)
+    pump_weight INTEGER, -- eg 30 (in ton)
+    pump_rhythm INTEGER, -- eg 150 (in l/min)
+    pump_pressure INTEGER, -- eg 85 (in bar)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(organization_id, name)
@@ -205,28 +204,60 @@ CREATE TABLE machines (
 CREATE TABLE jobs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    departure_time TIMESTAMP WITH TIME ZONE,
+
+    -- planning/job status
     start_time TIMESTAMP WITH TIME ZONE NOT NULL,
     end_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    pump_type_id UUID REFERENCES pump_types(id) ON DELETE SET NULL,
-    pump_type_requested_id UUID REFERENCES pump_types(id) ON DELETE SET NULL,
-    pumpist_id UUID REFERENCES users(id) ON DELETE SET NULL,
+
+    planning_status VARCHAR(30) DEFAULT 'planned' CHECK (planning_status IN ('planned', 'assigned')), -- determines if the job is planned or assigned ("definitief toegewezen")
+    job_status VARCHAR(30) DEFAULT 'planning' CHECK (job_status IN ('planning', 'received', 'in_progress', 'completed', 'invoiced', 'cancelled')),
+    proprietary_concrete BOOLEAN DEFAULT false, -- if proprietary concrete, indicate this with different color in the calendar
+    color VARCHAR(50), -- allow user to set custom colors: green, orange, red, ...
+    
+    -- client
     client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-    price_list_id UUID NOT NULL REFERENCES price_lists(id) ON DELETE RESTRICT,
-    address_street VARCHAR(255) NOT NULL,
+    price_list_id UUID NOT NULL REFERENCES price_lists(id) ON DELETE RESTRICT, -- by default set to the client's price list
+
+    -- yard
+    yard_id UUID REFERENCES yards(id) ON DELETE SET NULL,
+    travel_time_minutes INTEGER NOT NULL, -- Waze estimated travel time in minutes from organization's office to the job's location
+
+    -- supplier
+    concrete_plant_id UUID REFERENCES concrete_plants(id) ON DELETE SET NULL,
+
+    -- driver
+    driver_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    
+    -- machine
+    machine_id UUID REFERENCES machines(id) ON DELETE SET NULL,
+
+    -- job details
+    pump_type_requested_id UUID REFERENCES pump_types(id) ON DELETE SET NULL,
+    pump_type_id UUID REFERENCES pump_types(id) ON DELETE SET NULL,
+
+    volume_expected INTEGER NOT NULL, --in m3
+
+    -- pipe
+    pipe_expected INTEGER NOT NULL DEFAULT 35, --in ml
+
+    -- options
+    cement_milk BOOLEAN DEFAULT false,
+    central_cleaning BOOLEAN DEFAULT false,
+    cement_bags INTEGER DEFAULT 0,
+    frc BOOLEAN DEFAULT false, -- fiber reinforced concrete
+
+    -- address information (for jobs that don't reference a specific yard)
+    address_street VARCHAR(255),
     address_city VARCHAR(100),
     address_postal_code VARCHAR(10),
     address_country VARCHAR(100) DEFAULT 'Belgium',
-    yard VARCHAR(255),
-    phone VARCHAR(50),
-    concrete_supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
-    concrete_plant_id UUID REFERENCES concrete_plants(id) ON DELETE SET NULL,
-    expected_volume INTEGER NOT NULL,
-    pipe_length INTEGER NOT NULL,
-    construction_type VARCHAR(50) NOT NULL,
+
+    -- varia
+    order_number VARCHAR(50),
     dispatcher_notes TEXT,
     pumpist_notes TEXT,
-    status VARCHAR(30) DEFAULT 'te_plannen' CHECK (status IN ('te_plannen', 'gepland', 'gepland_eigen_beton', 'geannuleerd')),
+    
+    -- metadata
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -239,12 +270,17 @@ CREATE TABLE job_tracking (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    
     actual_start_time TIMESTAMP WITH TIME ZONE,
     actual_end_time TIMESTAMP WITH TIME ZONE,
-    actual_volume INTEGER,
-    actual_pipe_length INTEGER,
+    actual_volume INTEGER, --in m3
+    actual_pipe INTEGER, --in ml
+
+    job_progress VARCHAR(30) DEFAULT 'idle' CHECK (job_progress IN ('idle', 'underway', 'on_site', 'safety_check', 'start_installation', 'end_installation', 'start_pumping', 'end_pumping', 'fill_in_form', 'sign_form', 'leave_site')),
+
     notes TEXT,
     tracked_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -268,6 +304,42 @@ CREATE TABLE audit_logs (
 );
 
 -- ============================================================================
+-- 14. INVOICES TABLE
+-- ============================================================================
+
+CREATE TABLE invoices (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    job_id UUID REFERENCES jobs(id) ON DELETE SET NULL,
+    client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    invoice_number VARCHAR(50) NOT NULL,
+    invoice_date DATE NOT NULL,
+    due_date DATE,
+    status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'paid', 'overdue', 'cancelled')),
+    subtotal DECIMAL(10,2) NOT NULL,
+    tax_amount DECIMAL(10,2) DEFAULT 0,
+    total_amount DECIMAL(10,2) NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(organization_id, invoice_number)
+);
+
+-- ============================================================================
+-- 15. INVOICE LINE ITEMS TABLE
+-- ============================================================================
+
+CREATE TABLE invoice_line_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    description TEXT NOT NULL,
+    quantity DECIMAL(10,2) NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    total_price DECIMAL(10,2) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================================
 -- 14. INDEXES FOR PERFORMANCE
 -- ============================================================================
 
@@ -278,7 +350,6 @@ CREATE INDEX idx_price_lists_organization_id ON price_lists(organization_id);
 CREATE INDEX idx_clients_organization_id ON clients(organization_id);
 CREATE INDEX idx_concrete_plants_organization_id ON concrete_plants(organization_id);
 CREATE INDEX idx_yards_organization_id ON yards(organization_id);
-CREATE INDEX idx_suppliers_organization_id ON suppliers(organization_id);
 CREATE INDEX idx_invoice_templates_organization_id ON invoice_templates(organization_id);
 CREATE INDEX idx_machines_organization_id ON machines(organization_id);
 CREATE INDEX idx_jobs_organization_id ON jobs(organization_id);
@@ -287,10 +358,12 @@ CREATE INDEX idx_audit_logs_organization_id ON audit_logs(organization_id);
 
 -- Job-related indexes
 CREATE INDEX idx_jobs_start_time ON jobs(start_time);
-CREATE INDEX idx_jobs_status ON jobs(status);
-CREATE INDEX idx_jobs_pumpist_id ON jobs(pumpist_id);
+CREATE INDEX idx_jobs_planning_status ON jobs(planning_status);
+CREATE INDEX idx_jobs_job_status ON jobs(job_status);
+CREATE INDEX idx_jobs_driver_id ON jobs(driver_id);
 CREATE INDEX idx_jobs_client_id ON jobs(client_id);
 CREATE INDEX idx_job_tracking_job_id ON job_tracking(job_id);
+CREATE INDEX idx_job_tracking_job_progress ON job_tracking(job_progress);
 
 -- User and authentication indexes
 CREATE INDEX idx_users_auth_user_id ON users(auth_user_id);
@@ -301,338 +374,51 @@ CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_table_name ON audit_logs(table_name);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 
+-- Foreign key indexes for JOIN performance
+CREATE INDEX idx_jobs_yard_id ON jobs(yard_id);
+CREATE INDEX idx_jobs_concrete_plant_id ON jobs(concrete_plant_id);
+CREATE INDEX idx_jobs_machine_id ON jobs(machine_id);
+CREATE INDEX idx_jobs_pump_type_requested_id ON jobs(pump_type_requested_id);
+CREATE INDEX idx_jobs_pump_type_id ON jobs(pump_type_id);
+CREATE INDEX idx_jobs_price_list_id ON jobs(price_list_id);
+CREATE INDEX idx_machines_pumpist_id ON machines(pumpist_id);
+CREATE INDEX idx_machines_invoice_template_id ON machines(invoice_template_id);
+CREATE INDEX idx_machines_pump_type_id ON machines(pump_type_id);
+CREATE INDEX idx_clients_price_list_id ON clients(price_list_id);
+CREATE INDEX idx_concrete_plants_client_id ON concrete_plants(client_id);
+CREATE INDEX idx_yards_client_id ON yards(client_id);
+
+-- Time-based query indexes
+CREATE INDEX idx_jobs_start_time_end_time ON jobs(start_time, end_time);
+CREATE INDEX idx_job_tracking_actual_start_time ON job_tracking(actual_start_time);
+CREATE INDEX idx_job_tracking_actual_end_time ON job_tracking(actual_end_time);
+
 -- Additional performance indexes
-CREATE INDEX idx_jobs_org_start_status ON jobs(organization_id, start_time, status);
+CREATE INDEX idx_jobs_org_start_status ON jobs(organization_id, start_time, job_status);
+CREATE INDEX idx_jobs_org_planning_status ON jobs(organization_id, planning_status);
+CREATE INDEX idx_jobs_org_job_status ON jobs(organization_id, job_status);
+CREATE INDEX idx_jobs_org_driver_status ON jobs(organization_id, driver_id, job_status);
+CREATE INDEX idx_jobs_org_start_end ON jobs(organization_id, start_time, end_time);
+CREATE INDEX idx_jobs_client_status ON jobs(client_id, job_status);
 CREATE INDEX idx_clients_org_name ON clients(organization_id, name);
 CREATE INDEX idx_machines_org_type ON machines(organization_id, type);
 CREATE INDEX idx_jobs_org_client ON jobs(organization_id, client_id);
-CREATE INDEX idx_jobs_org_pumpist ON jobs(organization_id, pumpist_id);
+CREATE INDEX idx_jobs_org_driver ON jobs(organization_id, driver_id);
+
+-- Address-based indexes for jobs
+CREATE INDEX idx_jobs_address_city ON jobs(address_city);
+CREATE INDEX idx_jobs_address_postal_code ON jobs(address_postal_code);
+
+-- Partial indexes for better performance on filtered data
+CREATE INDEX idx_jobs_active ON jobs(organization_id, start_time) WHERE job_status != 'cancelled';
+CREATE INDEX idx_machines_active ON machines(organization_id, name) WHERE is_active = true;
+CREATE INDEX idx_clients_active ON clients(organization_id, name) WHERE is_active = true;
 
 -- ============================================================================
 -- 15. ROW LEVEL SECURITY POLICIES
 -- ============================================================================
 
--- Enable RLS on all tables
-ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pump_types ENABLE ROW LEVEL SECURITY;
-ALTER TABLE price_lists ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE concrete_plants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE yards ENABLE ROW LEVEL SECURITY;
-ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE invoice_templates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE machines ENABLE ROW LEVEL SECURITY;
-ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE job_tracking ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
-
--- Helper function to get user's organization (with recursion protection)
-CREATE OR REPLACE FUNCTION get_user_organization_id()
-RETURNS UUID AS $$
-DECLARE
-    org_id UUID;
-BEGIN
-    -- Bypass RLS by using a security definer function that operates with elevated privileges
-    -- This function is marked as SECURITY DEFINER to bypass RLS and avoid recursion
-    SELECT organization_id INTO org_id
-    FROM users
-    WHERE auth_user_id = auth.uid()
-    LIMIT 1;
-
-    RETURN org_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Grant execute permission to authenticated users
-GRANT EXECUTE ON FUNCTION get_user_organization_id() TO authenticated;
-
--- Special function to get current user without RLS recursion
-CREATE OR REPLACE FUNCTION get_current_user()
-RETURNS TABLE(
-    id UUID,
-    organization_id UUID,
-    auth_user_id UUID,
-    first_name VARCHAR(100),
-    last_name VARCHAR(100),
-    is_active BOOLEAN,
-    email VARCHAR(255),
-    phone VARCHAR(50),
-    roles TEXT[],
-    created_at TIMESTAMP WITH TIME ZONE,
-    updated_at TIMESTAMP WITH TIME ZONE
-) AS $$
-BEGIN
-    -- This function bypasses RLS to avoid recursion when getting current user
-    RETURN QUERY
-    SELECT 
-        u.id,
-        u.organization_id,
-        u.auth_user_id,
-        u.first_name,
-        u.last_name,
-        u.is_active,
-        u.email,
-        u.phone,
-        u.roles,
-        u.created_at,
-        u.updated_at
-    FROM users u
-    WHERE u.auth_user_id = auth.uid()
-    LIMIT 1;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Grant execute permission to authenticated users
-GRANT EXECUTE ON FUNCTION get_current_user() TO authenticated;
-
--- Organizations policies
-CREATE POLICY "Users can view their own organization" ON organizations
-    FOR SELECT
-    USING (
-        id IN (
-            SELECT u.organization_id
-            FROM users u
-            WHERE u.auth_user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Super admins can manage all organizations" ON organizations
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND 'super_admin' = ANY(roles)
-        )
-    );
-
--- Users policies (fixed to avoid recursion)
--- Policy for viewing users: Users can view other users in their organization
-CREATE POLICY "Users can view users in their organization" ON users
-    FOR SELECT
-    USING (
-        organization_id IN (
-            SELECT u.organization_id
-            FROM users u
-            WHERE u.auth_user_id = auth.uid()
-        )
-    );
-
--- Policy for managing users: Only managers and org admins can manage users
-CREATE POLICY "Managers can manage users in their organization" ON users
-    FOR ALL
-    USING (
-        organization_id IN (
-            SELECT u.organization_id
-            FROM users u
-            WHERE u.auth_user_id = auth.uid()
-            AND ('manager' = ANY(u.roles) OR 'organization_admin' = ANY(u.roles))
-        )
-    );
-
--- Add policy for inserting users (needed for user registration)
-CREATE POLICY "Allow user creation" ON users
-    FOR INSERT
-    WITH CHECK (true);  -- This will be controlled by application logic
-
--- Add policy for updating own user profile
-CREATE POLICY "Users can update their own profile" ON users
-    FOR UPDATE
-    USING (auth_user_id = auth.uid())
-    WITH CHECK (auth_user_id = auth.uid());
-
--- Pump types policies
-CREATE POLICY "Users can view pump types in their organization" ON pump_types
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Dispatchers can manage pump types in their organization" ON pump_types
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('dispatcher' = ANY(roles) OR 'manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Price lists policies
-CREATE POLICY "Users can view price lists in their organization" ON price_lists
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Dispatchers can manage price lists in their organization" ON price_lists
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('dispatcher' = ANY(roles) OR 'manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Clients policies
-CREATE POLICY "Users can view clients in their organization" ON clients
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Dispatchers can manage clients in their organization" ON clients
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('dispatcher' = ANY(roles) OR 'manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Concrete plants policies
-CREATE POLICY "Users can view concrete plants in their organization" ON concrete_plants
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Dispatchers can manage concrete plants in their organization" ON concrete_plants
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('dispatcher' = ANY(roles) OR 'manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Yards policies
-CREATE POLICY "Users can view yards in their organization" ON yards
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Dispatchers can manage yards in their organization" ON yards
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('dispatcher' = ANY(roles) OR 'manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Suppliers policies
-CREATE POLICY "Users can view suppliers in their organization" ON suppliers
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Dispatchers can manage suppliers in their organization" ON suppliers
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('dispatcher' = ANY(roles) OR 'manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Invoice templates policies
-CREATE POLICY "Users can view invoice templates in their organization" ON invoice_templates
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Managers can manage invoice templates in their organization" ON invoice_templates
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Machines policies
-CREATE POLICY "Users can view machines in their organization" ON machines
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Dispatchers can manage machines in their organization" ON machines
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('dispatcher' = ANY(roles) OR 'manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Jobs policies
-CREATE POLICY "Users can view jobs in their organization" ON jobs
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Pumpists can view their own jobs" ON jobs
-    FOR SELECT USING (
-        organization_id = get_user_organization_id() AND
-        pumpist_id = (
-            SELECT id FROM users WHERE auth_user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Dispatchers can manage jobs in their organization" ON jobs
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('dispatcher' = ANY(roles) OR 'manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Job tracking policies
-CREATE POLICY "Users can view job tracking in their organization" ON job_tracking
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Pumpists can update their own job tracking" ON job_tracking
-    FOR ALL USING (
-        organization_id = get_user_organization_id() AND
-        tracked_by = (
-            SELECT id FROM users WHERE auth_user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Dispatchers can manage job tracking in their organization" ON job_tracking
-    FOR ALL
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('dispatcher' = ANY(roles) OR 'manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
-
--- Audit logs policies
-CREATE POLICY "Users can view audit logs in their organization" ON audit_logs
-    FOR SELECT USING (organization_id = get_user_organization_id());
-
-CREATE POLICY "Managers can view all audit logs in their organization" ON audit_logs
-    FOR SELECT
-    USING (
-        organization_id = get_user_organization_id() AND
-        EXISTS (
-            SELECT 1 FROM users
-            WHERE auth_user_id = auth.uid()
-            AND organization_id = get_user_organization_id()
-            AND ('manager' = ANY(roles) OR 'organization_admin' = ANY(roles))
-        )
-    );
+-- todo: add RLS policies after RLS is enabled
 
 -- ============================================================================
 -- 16. TRIGGERS FOR UPDATED_AT TIMESTAMPS
@@ -654,7 +440,6 @@ CREATE TRIGGER update_price_lists_updated_at BEFORE UPDATE ON price_lists FOR EA
 CREATE TRIGGER update_clients_updated_at BEFORE UPDATE ON clients FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_concrete_plants_updated_at BEFORE UPDATE ON concrete_plants FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_yards_updated_at BEFORE UPDATE ON yards FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_suppliers_updated_at BEFORE UPDATE ON suppliers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_invoice_templates_updated_at BEFORE UPDATE ON invoice_templates FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_machines_updated_at BEFORE UPDATE ON machines FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -735,7 +520,6 @@ CREATE TRIGGER audit_price_lists AFTER INSERT OR UPDATE OR DELETE ON price_lists
 CREATE TRIGGER audit_clients AFTER INSERT OR UPDATE OR DELETE ON clients FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 CREATE TRIGGER audit_concrete_plants AFTER INSERT OR UPDATE OR DELETE ON concrete_plants FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 CREATE TRIGGER audit_yards AFTER INSERT OR UPDATE OR DELETE ON yards FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
-CREATE TRIGGER audit_suppliers AFTER INSERT OR UPDATE OR DELETE ON suppliers FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 CREATE TRIGGER audit_invoice_templates AFTER INSERT OR UPDATE OR DELETE ON invoice_templates FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 CREATE TRIGGER audit_machines AFTER INSERT OR UPDATE OR DELETE ON machines FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
 CREATE TRIGGER audit_jobs AFTER INSERT OR UPDATE OR DELETE ON jobs FOR EACH ROW EXECUTE FUNCTION audit_trigger_function();
@@ -744,6 +528,18 @@ CREATE TRIGGER audit_job_tracking AFTER INSERT OR UPDATE OR DELETE ON job_tracki
 -- ============================================================================
 -- 18. UTILITY FUNCTIONS
 -- ============================================================================
+
+-- Function to get user's organization ID
+CREATE OR REPLACE FUNCTION get_user_organization_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN (
+        SELECT organization_id 
+        FROM users 
+        WHERE auth_user_id = auth.uid()
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to get user's roles
 CREATE OR REPLACE FUNCTION get_user_roles()
@@ -780,33 +576,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ============================================================================
 -- 19. SAMPLE DATA (OPTIONAL - FOR TESTING)
 -- ============================================================================
-
--- Insert a sample organization
-INSERT INTO organizations (name, slug, subscription_active, max_users, max_pumps) 
-VALUES ('Demo Concrete Pump Co', 'demo-concrete-pump', true, 50, 20);
-
--- Get the organization ID for sample data
-DO $$
-DECLARE
-    org_id UUID;
-BEGIN
-    SELECT id INTO org_id FROM organizations WHERE slug = 'demo-concrete-pump';
-    
-    -- Insert sample pump types
-    INSERT INTO pump_types (organization_id, name, capacity) VALUES
-    (org_id, 'Pump_leiden', 25),
-    (org_id, 'Pump_32', 32),
-    (org_id, 'Pump_36', 36);
-    
-    -- Insert sample price list
-    INSERT INTO price_lists (organization_id, name, cement_milk_price, weekend_surcharge_percentage, overtime_rate_multiplier, minimum_charge, travel_cost_per_km, additional_services) VALUES
-    (org_id, 'Standard Pricing', 45.00, 50, 1.5, 100.00, 2.50, '{"crane_rental": 150.00, "cleaning_service": 25.00, "standby_hourly_rate": 75.00}');
-    
-    -- Insert sample client
-    INSERT INTO clients (organization_id, client_code, name, price_list_id) VALUES
-    (org_id, '1001', 'Demo Construction Ltd', (SELECT id FROM price_lists WHERE organization_id = org_id LIMIT 1));
-    
-END $$;
+-- see sample_data.sql for sample data
 
 -- ============================================================================
 -- 20. ADDITIONAL CONSTRAINTS AND VALIDATIONS
@@ -814,18 +584,44 @@ END $$;
 
 -- Add check constraints for data validation
 ALTER TABLE jobs ADD CONSTRAINT jobs_start_before_end CHECK (start_time < end_time);
-ALTER TABLE jobs ADD CONSTRAINT jobs_departure_before_start CHECK (departure_time IS NULL OR departure_time <= start_time);
-ALTER TABLE jobs ADD CONSTRAINT jobs_positive_volume CHECK (expected_volume > 0);
-ALTER TABLE jobs ADD CONSTRAINT jobs_positive_pipe_length CHECK (pipe_length >= 0);
+ALTER TABLE jobs ADD CONSTRAINT jobs_positive_volume CHECK (volume_expected > 0);
+ALTER TABLE jobs ADD CONSTRAINT jobs_positive_pipe_length CHECK (pipe_expected >= 0);
 
 ALTER TABLE job_tracking ADD CONSTRAINT job_tracking_start_before_end CHECK (actual_start_time IS NULL OR actual_end_time IS NULL OR actual_start_time <= actual_end_time);
 ALTER TABLE job_tracking ADD CONSTRAINT job_tracking_positive_volume CHECK (actual_volume IS NULL OR actual_volume >= 0);
-ALTER TABLE job_tracking ADD CONSTRAINT job_tracking_positive_pipe_length CHECK (actual_pipe_length IS NULL OR actual_pipe_length >= 0);
+ALTER TABLE job_tracking ADD CONSTRAINT job_tracking_positive_pipe_length CHECK (actual_pipe IS NULL OR actual_pipe >= 0);
 
 ALTER TABLE pump_types ADD CONSTRAINT pump_types_positive_capacity CHECK (capacity IS NULL OR capacity > 0);
-ALTER TABLE price_lists ADD CONSTRAINT price_lists_positive_cement_price CHECK (cement_milk_price IS NULL OR cement_milk_price >= 0);
+
+-- Price list constraints
+ALTER TABLE price_lists ADD CONSTRAINT price_lists_positive_cement_milk_price CHECK (cement_milk_price IS NULL OR cement_milk_price >= 0);
+ALTER TABLE price_lists ADD CONSTRAINT price_lists_positive_central_cleaning_rate CHECK (central_cleaning_rate IS NULL OR central_cleaning_rate >= 0);
+ALTER TABLE price_lists ADD CONSTRAINT price_lists_positive_cement_bag_price CHECK (cement_bag_price IS NULL OR cement_bag_price >= 0);
+ALTER TABLE price_lists ADD CONSTRAINT price_lists_positive_second_pumpist_rate CHECK (second_pumpist_rate IS NULL OR second_pumpist_rate >= 0);
+ALTER TABLE price_lists ADD CONSTRAINT price_lists_positive_threshold_hose_length CHECK (threshold_concrete_hose_length_second_pumpist IS NULL OR threshold_concrete_hose_length_second_pumpist >= 0);
+ALTER TABLE price_lists ADD CONSTRAINT price_lists_positive_minimum_charge CHECK (minimum_charge IS NULL OR minimum_charge >= 0);
+ALTER TABLE price_lists ADD CONSTRAINT price_lists_positive_travel_cost CHECK (travel_cost_per_km IS NULL OR travel_cost_per_km >= 0);
 ALTER TABLE price_lists ADD CONSTRAINT price_lists_valid_weekend_surcharge CHECK (weekend_surcharge_percentage >= 0 AND weekend_surcharge_percentage <= 100);
 ALTER TABLE price_lists ADD CONSTRAINT price_lists_positive_overtime_multiplier CHECK (overtime_rate_multiplier IS NULL OR overtime_rate_multiplier >= 1.0);
+
+-- Machine constraints
+ALTER TABLE machines ADD CONSTRAINT machines_positive_pump_length CHECK (pump_length IS NULL OR pump_length > 0);
+ALTER TABLE machines ADD CONSTRAINT machines_positive_pump_width CHECK (pump_width IS NULL OR pump_width > 0);
+ALTER TABLE machines ADD CONSTRAINT machines_positive_pump_height CHECK (pump_height IS NULL OR pump_height > 0);
+ALTER TABLE machines ADD CONSTRAINT machines_positive_vertical CHECK (vertical IS NULL OR vertical > 0);
+ALTER TABLE machines ADD CONSTRAINT machines_positive_horizontal CHECK (horizontal IS NULL OR horizontal > 0);
+ALTER TABLE machines ADD CONSTRAINT machines_positive_pump_weight CHECK (pump_weight IS NULL OR pump_weight > 0);
+ALTER TABLE machines ADD CONSTRAINT machines_positive_pump_rhythm CHECK (pump_rhythm IS NULL OR pump_rhythm > 0);
+ALTER TABLE machines ADD CONSTRAINT machines_positive_pump_pressure CHECK (pump_pressure IS NULL OR pump_pressure > 0);
+
+-- Job constraints
+ALTER TABLE jobs ADD CONSTRAINT jobs_positive_cement_bags CHECK (cement_bags IS NULL OR cement_bags >= 0);
+ALTER TABLE jobs ADD CONSTRAINT jobs_positive_travel_time CHECK (travel_time_minutes IS NULL OR travel_time_minutes >= 0);
+
+-- Email validation constraints
+ALTER TABLE organizations ADD CONSTRAINT organizations_valid_email CHECK (email IS NULL OR email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
+ALTER TABLE users ADD CONSTRAINT users_valid_email CHECK (email IS NULL OR email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
+ALTER TABLE yards ADD CONSTRAINT yards_valid_email CHECK (email IS NULL OR email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
 
 -- Add organization subscription limit enforcement functions
 CREATE OR REPLACE FUNCTION check_user_limit()
@@ -841,8 +637,8 @@ BEGIN
     WHERE u.organization_id = NEW.organization_id AND u.is_active = true
     GROUP BY o.max_users;
     
-    -- Check if adding this user would exceed the limit
-    IF current_user_count >= max_users_limit THEN
+    -- Check if adding this user would exceed the limit (account for the new user being active)
+    IF NEW.is_active = true AND current_user_count >= max_users_limit THEN
         RAISE EXCEPTION 'Organization user limit exceeded. Current: %, Limit: %', current_user_count, max_users_limit;
     END IF;
     
@@ -850,8 +646,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER check_user_limit_trigger
+CREATE TRIGGER check_user_limit_insert_trigger
     BEFORE INSERT ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION check_user_limit();
+
+CREATE TRIGGER check_user_limit_update_trigger
+    BEFORE UPDATE ON users
     FOR EACH ROW
     EXECUTE FUNCTION check_user_limit();
 
@@ -871,8 +672,8 @@ BEGIN
         WHERE m.organization_id = NEW.organization_id AND m.is_active = true AND m.type = 'pump'
         GROUP BY o.max_pumps;
         
-        -- Check if adding this pump would exceed the limit
-        IF current_pump_count >= max_pumps_limit THEN
+        -- Check if adding this pump would exceed the limit (account for the new pump being active)
+        IF NEW.is_active = true AND current_pump_count >= max_pumps_limit THEN
             RAISE EXCEPTION 'Organization pump limit exceeded. Current: %, Limit: %', current_pump_count, max_pumps_limit;
         END IF;
     END IF;
@@ -881,8 +682,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER check_pump_limit_trigger
+CREATE TRIGGER check_pump_limit_insert_trigger
     BEFORE INSERT ON machines
+    FOR EACH ROW
+    EXECUTE FUNCTION check_pump_limit();
+
+CREATE TRIGGER check_pump_limit_update_trigger
+    BEFORE UPDATE ON machines
     FOR EACH ROW
     EXECUTE FUNCTION check_pump_limit();
 
@@ -899,14 +705,11 @@ COMMENT ON TABLE price_lists IS 'Pricing configurations per organization';
 COMMENT ON TABLE clients IS 'Client companies with custom pricing options';
 COMMENT ON TABLE concrete_plants IS 'Concrete production plants linked to clients';
 COMMENT ON TABLE yards IS 'Construction yards with contact information';
-COMMENT ON TABLE suppliers IS 'Concrete suppliers and other service providers';
 COMMENT ON TABLE invoice_templates IS 'Customizable invoice templates per organization';
 COMMENT ON TABLE machines IS 'Pump and mixer machines with assigned pumpists';
 COMMENT ON TABLE jobs IS 'Concrete pump jobs with scheduling and tracking';
 COMMENT ON TABLE job_tracking IS 'Actual vs expected job performance tracking';
 COMMENT ON TABLE audit_logs IS 'Complete audit trail for all data changes';
-
-COMMENT ON FUNCTION get_user_organization_id() IS 'Helper function to get current user organization ID, bypasses RLS to avoid recursion';
 
 -- ============================================================================
 -- END OF SCHEMA

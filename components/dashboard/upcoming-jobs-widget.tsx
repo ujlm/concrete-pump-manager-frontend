@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Clock, MapPin, User, Building } from 'lucide-react';
 import { format } from 'date-fns';
 import { Job } from '@/lib/types/database';
+import { calculateDepartureTime } from '@/lib/types/calendar';
 
 interface UpcomingJobsWidgetProps {
   jobs: Job[];
@@ -44,7 +45,8 @@ export function UpcomingJobsWidget({ jobs, isLoading, error }: UpcomingJobsWidge
       <div className="space-y-2 max-h-40 overflow-y-auto">
         {jobs.length > 0 ? (
           jobs.map((job) => {
-            const { date, time } = formatDateTime(job.departure_time);
+            const departureTime = calculateDepartureTime(job.start_time, job.travel_time_minutes);
+            const { date, time } = formatDateTime(departureTime || job.start_time);
             return (
               <div key={job.id} className="p-3 rounded-lg border bg-muted/30 hover:bg-muted/50 transition-colors">
                 <div className="flex items-start justify-between gap-2">
@@ -70,11 +72,11 @@ export function UpcomingJobsWidget({ jobs, isLoading, error }: UpcomingJobsWidge
                         </span>
                       </div>
 
-                      {job.assigned_pompist && (
+                      {job.assigned_driver && (
                         <div className="flex items-center gap-1">
                           <User className="h-3 w-3 text-muted-foreground" />
                           <span className="text-xs text-muted-foreground truncate">
-                            {job.assigned_pompist.first_name} {job.assigned_pompist.last_name}
+                            {job.assigned_driver.first_name} {job.assigned_driver.last_name}
                           </span>
                         </div>
                       )}

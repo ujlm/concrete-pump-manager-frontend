@@ -1,6 +1,6 @@
-import { addMinutes, format, startOfDay } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
 
-export type JobStatus = 'to_plan' | 'planned' | 'planned_own_concrete' | 'en_route' | 'arrived' | 'in_progress' | 'completed' | 'cancelled';
+export type JobStatus = 'planning' | 'received' | 'in_progress' | 'completed' | 'invoiced' | 'cancelled';
 
 export interface Job {
   id: string;
@@ -10,24 +10,29 @@ export interface Job {
     name: string;
     phone?: string;
   };
-  pumpist_id?: string;
-  pumpist?: {
+  driver_id?: string;
+  driver?: {
     first_name: string;
     last_name: string;
   };
   pump_type_id?: string;
   pump_type?: {
     name: string;
-    capacity: number;
+    capacity?: number;
   };
-  status: JobStatus;
+  job_status: JobStatus;
+  planning_status: 'planned' | 'assigned';
   job_date: string; // ISO date string
-  departure_time?: string; // HH:mm format
-  arrival_time?: string; // HH:mm format
   start_time?: string; // HH:mm format
   end_time?: string; // HH:mm format
-  volume_m3?: number;
-  pipe_length?: number;
+  volume_expected?: number;
+  pipe_expected?: number;
+  // Modal field aliases (for backward compatibility)
+  volume_m3?: number; // Maps to volume_expected
+  pipe_length?: number; // Maps to pipe_expected
+  pumpist_id?: string; // Maps to driver_id
+  status?: JobStatus; // Maps to job_status
+  price_list_id?: string; // Price list for the job
   address_street?: string;
   address_city?: string;
   address_postal_code?: string;
@@ -35,7 +40,7 @@ export interface Job {
   notes?: string;
   dispatcher_notes?: string;
   pumpist_notes?: string;
-  is_concrete_supplier_job: boolean;
+  proprietary_concrete: boolean;
   created_at: string;
   updated_at?: string;
 }
@@ -62,6 +67,16 @@ export interface CalendarJob extends Job {
   workMinutes: number; // actual work time
   gridRow: number; // grid position
   gridSpan: number; // grid span
+  // Backward compatibility fields
+  pumpist_id?: string;
+  pumpist?: {
+    first_name: string;
+    last_name: string;
+  };
+  status?: JobStatus;
+  volume_m3?: number;
+  pipe_length?: number;
+  is_concrete_supplier_job?: boolean;
 }
 
 export interface ConflictInfo {
@@ -92,6 +107,17 @@ export function minutesToTime(minutes: number): string {
   return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
 }
 
+// Helper function to calculate departure time based on start_time and travel_time_minutes
+export function calculateDepartureTime(startTime: string | undefined, travelTimeMinutes: number = 0): string | undefined {
+  if (!startTime || travelTimeMinutes <= 0) {
+    return startTime;
+  }
+  
+  const startMinutes = timeToMinutes(startTime);
+  const departureMinutes = Math.max(0, startMinutes - travelTimeMinutes);
+  return minutesToTime(departureMinutes);
+}
+
 export function generateTimeSlots(): TimeSlot[] {
   const slots: TimeSlot[] = [];
   const startMinutes = WORK_DAY_START * 60;
@@ -111,7 +137,8 @@ export function generateTimeSlots(): TimeSlot[] {
 }
 
 export function calculateJobGridPosition(job: Job): { row: number; span: number } {
-  const startTime = job.departure_time || job.start_time;
+  const departureTime = calculateDepartureTime(job.start_time, job.travel_time_minutes);
+  const startTime = departureTime || job.start_time;
   const endTime = job.end_time;
 
   if (!startTime || !endTime) {
@@ -132,7 +159,8 @@ export function calculateJobGridPosition(job: Job): { row: number; span: number 
 }
 
 export function convertJobToCalendarJob(job: Job): CalendarJob {
-  const startTime = job.departure_time || job.start_time;
+  const departureTime = calculateDepartureTime(job.start_time, job.travel_time_minutes);
+  const startTime = departureTime || job.start_time;
   const endTime = job.end_time;
 
   const startMinutes = startTime ? timeToMinutes(startTime) : 0;
@@ -152,6 +180,13 @@ export function convertJobToCalendarJob(job: Job): CalendarJob {
     workMinutes,
     gridRow: row,
     gridSpan: span,
+    // Backward compatibility mappings
+    pumpist_id: job.driver_id,
+    pumpist: job.driver,
+    status: job.job_status,
+    volume_m3: job.volume_expected,
+    pipe_length: job.pipe_expected,
+    is_concrete_supplier_job: job.proprietary_concrete,
   };
 }
 
@@ -169,7 +204,7 @@ export function detectJobConflicts(jobs: CalendarJob[], driverId: string): Confl
     if (currentJob.endMinutes > nextJob.startMinutes) {
       conflicts.push({
         type: 'overlap',
-        severity: currentJob.status === 'gepland' || nextJob.status === 'gepland' ? 'error' : 'warning',
+        severity: currentJob.job_status === 'planning' || nextJob.job_status === 'planning' ? 'error' : 'warning',
         message: `Jobs overlap by ${currentJob.endMinutes - nextJob.startMinutes} minutes`,
         jobs: [currentJob.id, nextJob.id],
       });
@@ -181,20 +216,16 @@ export function detectJobConflicts(jobs: CalendarJob[], driverId: string): Confl
 
 export function getStatusColor(status: JobStatus): string {
   switch (status) {
-    case 'to_plan':
+    case 'planning':
       return 'bg-gray-200 border-gray-300 text-gray-700';
-    case 'planned':
+    case 'received':
       return 'bg-blue-100 border-blue-300 text-blue-800';
-    case 'planned_own_concrete':
-      return 'bg-green-100 border-green-300 text-green-800';
-    case 'en_route':
-      return 'bg-orange-100 border-orange-300 text-orange-800';
-    case 'arrived':
-      return 'bg-yellow-100 border-yellow-300 text-yellow-800';
     case 'in_progress':
       return 'bg-purple-100 border-purple-300 text-purple-800';
     case 'completed':
       return 'bg-emerald-100 border-emerald-300 text-emerald-800';
+    case 'invoiced':
+      return 'bg-green-100 border-green-300 text-green-800';
     case 'cancelled':
       return 'bg-red-100 border-red-300 text-red-800';
     default:
@@ -204,20 +235,16 @@ export function getStatusColor(status: JobStatus): string {
 
 export function getStatusLabel(status: JobStatus): string {
   switch (status) {
-    case 'to_plan':
-      return 'To Plan';
-    case 'planned':
-      return 'Planned';
-    case 'planned_own_concrete':
-      return 'Planned (Own Concrete)';
-    case 'en_route':
-      return 'En Route';
-    case 'arrived':
-      return 'Arrived';
+    case 'planning':
+      return 'Planning';
+    case 'received':
+      return 'Received';
     case 'in_progress':
       return 'In Progress';
     case 'completed':
       return 'Completed';
+    case 'invoiced':
+      return 'Invoiced';
     case 'cancelled':
       return 'Cancelled';
     default:

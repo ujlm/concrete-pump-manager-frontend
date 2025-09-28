@@ -45,10 +45,18 @@ export function TimeSlot({
 }: TimeSlotProps) {
   const [{ isOver, canDrop }, drop] = useDrop({
     accept: 'job',
-    drop: (item: { id: string; type: string }) => ({
-      time,
-      driverId,
-    }),
+    drop: (item: { id: string; type: string }) => {
+      console.log('⏰ TimeSlot drop triggered:', {
+        item,
+        time,
+        driverId,
+        isUnassigned
+      });
+      return {
+        time,
+        driverId,
+      };
+    },
     canDrop: (item) => {
       // Allow drops if overlaps are allowed, or if no conflict exists
       if (allowOverlaps) return true;

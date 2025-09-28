@@ -30,6 +30,7 @@ import {
   getOrganizationClientsForCalendar,
   getOrganizationPumpTypesForCalendar,
 } from "@/lib/actions/calendar";
+import { getOrganizationPriceLists } from "@/lib/actions/settings";
 import { getActiveDrivers } from "@/lib/actions/calendar";
 import { getStatusLabel } from "@/lib/types/calendar";
 import { toast } from "@/components/ui/use-toast";
@@ -42,18 +43,15 @@ const jobSchema = z.object({
   client_id: z.string().optional(),
   pumpist_id: z.string().optional(),
   pump_type_id: z.string().optional(),
+  price_list_id: z.string().optional(),
   status: z.enum([
-    "to_plan",
-    "planned",
-    "planned_own_concrete",
-    "en_route",
-    "arrived",
+    "planning",
+    "received",
     "in_progress",
     "completed",
+    "invoiced",
     "cancelled",
   ]),
-  departure_time: z.string().optional(),
-  arrival_time: z.string().optional(),
   start_time: z.string().optional(),
   end_time: z.string().optional(),
   volume_m3: z.number().min(0).optional(),
@@ -92,7 +90,7 @@ export function JobModal({
   onClose,
 }: JobModalProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [clients, setClients] = useState<Array<{ id: string; name: string }>>(
+  const [clients, setClients] = useState<Array<{ id: string; name: string; price_list_id?: string }>>(
     []
   );
   const [drivers, setDrivers] = useState<
@@ -100,6 +98,9 @@ export function JobModal({
   >([]);
   const [pumpTypes, setPumpTypes] = useState<
     Array<{ id: string; name: string; capacity: number }>
+  >([]);
+  const [priceLists, setPriceLists] = useState<
+    Array<{ id: string; name: string }>
   >([]);
   const [activeTab, setActiveTab] = useState("details");
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
@@ -116,9 +117,8 @@ export function JobModal({
       client_id: job?.client_id || "",
       pumpist_id: job?.pumpist_id || "",
       pump_type_id: job?.pump_type_id || "",
-      status: job?.status || "to_plan",
-      departure_time: job?.departure_time || "",
-      arrival_time: job?.arrival_time || "",
+      price_list_id: job?.price_list_id || "",
+      status: job?.status || "planning",
       start_time:
         job?.start_time ||
         (mode === "create" && clickedTime ? clickedTime : ""),
@@ -145,15 +145,17 @@ export function JobModal({
     const loadData = async () => {
       setIsLoading(true);
       try {
-        const [clientsData, driversData, pumpTypesData] = await Promise.all([
+        const [clientsData, driversData, pumpTypesData, priceListsData] = await Promise.all([
           getOrganizationClientsForCalendar(organizationSlug),
           getActiveDrivers(organizationSlug),
           getOrganizationPumpTypesForCalendar(organizationSlug),
+          getOrganizationPriceLists(organizationSlug),
         ]);
 
         setClients(clientsData);
         setDrivers(driversData);
         setPumpTypes(pumpTypesData);
+        setPriceLists(priceListsData);
       } catch (error) {
         console.error("Error loading form data:", error);
         toast({
@@ -235,6 +237,17 @@ export function JobModal({
     console.log("Location updated:", { lat, lng });
   };
 
+  // Handle client selection and auto-select their price list
+  const handleClientChange = (clientId: string) => {
+    form.setValue("client_id", clientId);
+    
+    // Find the selected client and set their default price list
+    const selectedClient = clients.find(c => c.id === clientId);
+    if (selectedClient && selectedClient.price_list_id) {
+      form.setValue("price_list_id", selectedClient.price_list_id);
+    }
+  };
+
   if (isLoading) {
     return (
       <Dialog open onOpenChange={onClose}>
@@ -263,13 +276,13 @@ export function JobModal({
           <DialogTitle className="flex items-center gap-2">
             {mode === "create" ? "Create New Job" : "Edit Job"}
             {job && (
-              <Badge variant="outline">{getStatusLabel(job.status)}</Badge>
+              <Badge variant="outline">{getStatusLabel(job.status || 'planning')}</Badge>
             )}
           </DialogTitle>
           <DialogDescription>
             {mode === "create"
               ? `Create a new job for ${selectedDate}`
-              : "Update job details and scheduling"}
+              : "Update job details and scheduling" + job?.id}
           </DialogDescription>
         </DialogHeader>
 
@@ -306,7 +319,7 @@ export function JobModal({
                 <Label htmlFor="client_id">Client *</Label>
                 <Select
                   value={form.watch("client_id")}
-                  onValueChange={(value) => form.setValue("client_id", value)}
+                  onValueChange={handleClientChange}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a client" />
@@ -329,6 +342,29 @@ export function JobModal({
                         Create New Client
                       </div>
                     </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Price List Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="price_list_id">Price List</Label>
+                <Select
+                  value={form.watch("price_list_id")}
+                  onValueChange={(value) => form.setValue("price_list_id", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select price list" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {priceLists.map((priceList) => (
+                      <SelectItem key={priceList.id} value={priceList.id}>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4" />
+                          {priceList.name}
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -409,16 +445,12 @@ export function JobModal({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="te_plannen">To Plan</SelectItem>
-                    <SelectItem value="gepland">Planned</SelectItem>
-                    <SelectItem value="gepland_eigen_beton">
-                      Planned (Own Concrete)
-                    </SelectItem>
-                    <SelectItem value="onderweg">En Route</SelectItem>
-                    <SelectItem value="aangekomen">Arrived</SelectItem>
-                    <SelectItem value="bezig">In Progress</SelectItem>
-                    <SelectItem value="voltooid">Completed</SelectItem>
-                    <SelectItem value="geannuleerd">Cancelled</SelectItem>
+                    <SelectItem value="planning">Planning</SelectItem>
+                    <SelectItem value="received">Received</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="invoiced">Invoiced</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -448,24 +480,6 @@ export function JobModal({
               </div>
 
               {/* Time Fields */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="departure_time">Departure Time</Label>
-                  <Input
-                    id="departure_time"
-                    type="time"
-                    {...form.register("departure_time")}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="arrival_time">Arrival Time</Label>
-                  <Input
-                    id="arrival_time"
-                    type="time"
-                    {...form.register("arrival_time")}
-                  />
-                </div>
-              </div>
 
               {/* Travel Time */}
               <div className="space-y-2">

@@ -89,16 +89,16 @@ export async function getDashboardStats(): Promise<DashboardStats | null> {
       .from('jobs')
       .select('status')
       .eq('organization_id', user.organization_id)
-      .gte('departure_time', startOfDay(today).toISOString())
-      .lte('departure_time', endOfDay(today).toISOString());
+      .gte('start_time', startOfDay(today).toISOString())
+      .lte('start_time', endOfDay(today).toISOString());
 
     if (jobsError) throw jobsError;
 
     const jobStats = {
       total: todaysJobs?.length || 0,
-      planned: todaysJobs?.filter(j => j.status === 'planned' || j.status === 'planned_own_concrete').length || 0,
-      completed: todaysJobs?.filter(j => j.status === 'completed').length || 0,
-      cancelled: todaysJobs?.filter(j => j.status === 'cancelled').length || 0,
+      planned: todaysJobs?.filter(j => j.job_status === 'planning' || j.job_status === 'received').length || 0,
+      completed: todaysJobs?.filter(j => j.job_status === 'completed').length || 0,
+      cancelled: todaysJobs?.filter(j => j.job_status === 'cancelled').length || 0,
     };
 
     // Revenue data (this would need to be calculated from job pricing)
@@ -126,11 +126,11 @@ export async function getDashboardStats(): Promise<DashboardStats | null> {
         client:clients(*),
         yard:yards(*),
         concrete_plant:concrete_plants(*),
-        assigned_pompist:users!jobs_assigned_pompist_id_fkey(*)
+        driver:users!jobs_driver_id_fkey(*)
       `)
       .eq('organization_id', user.organization_id)
-      .gte('departure_time', new Date().toISOString())
-      .order('departure_time', { ascending: true })
+      .gte('start_time', new Date().toISOString())
+      .order('start_time', { ascending: true })
       .limit(5);
 
     if (upcomingError) throw upcomingError;
@@ -192,8 +192,8 @@ export async function getJobDistributionChartData(): Promise<ChartData | null> {
       .from('jobs')
       .select('status')
       .eq('organization_id', user.organization_id)
-      .gte('departure_time', startOfMonth(new Date()).toISOString())
-      .lte('departure_time', endOfMonth(new Date()).toISOString());
+      .gte('start_time', startOfMonth(new Date()).toISOString())
+      .lte('start_time', endOfMonth(new Date()).toISOString());
 
     if (error) throw error;
 
@@ -241,12 +241,12 @@ export async function getVolumeChartData(dateRange: DateRange): Promise<ChartDat
 
     const { data: jobs, error } = await supabase
       .from('jobs')
-      .select('departure_time, expected_volume')
+      .select('start_time, expected_volume')
       .eq('organization_id', user.organization_id)
-      .gte('departure_time', dateRange.from.toISOString())
-      .lte('departure_time', dateRange.to.toISOString())
+      .gte('start_time', dateRange.from.toISOString())
+      .lte('start_time', dateRange.to.toISOString())
       .not('expected_volume', 'is', null)
-      .order('departure_time');
+      .order('start_time');
 
     if (error) throw error;
 
@@ -254,7 +254,7 @@ export async function getVolumeChartData(dateRange: DateRange): Promise<ChartDat
     const volumeByPeriod: Record<string, number> = {};
 
     jobs?.forEach(job => {
-      const date = new Date(job.departure_time);
+      const date = new Date(job.start_time);
       const period = format(date, 'MMM dd');
         volumeByPeriod[period] = (volumeByPeriod[period] || 0) + (job.expected_volume || 0);
     });

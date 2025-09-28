@@ -50,7 +50,7 @@ export default function PlanningPage() {
         }
 
         // Check permissions
-        if (!currentUser.roles.some(role => ['dispatcher', 'manager', 'organization_admin', 'pompist'].includes(role))) {
+        if (!currentUser.roles.some(role => ['dispatcher', 'manager', 'organization_admin', 'driver'].includes(role))) {
           window.location.href = `/${organizationSlug}`;
           return;
         }

@@ -310,7 +310,7 @@ export function NavigationSidebar({ user, className }: NavigationSidebarProps) {
                  user.roles.includes('manager') ? 'Manager' :
                  user.roles.includes('dispatcher') ? 'Dispatcher' :
                  user.roles.includes('accountant') ? 'Accountant' :
-                 user.roles.includes('pompist') ? 'Pompist' : 'User'}
+                 user.roles.includes('driver') ? 'driver' : 'User'}
               </span>
             </div>
           )}

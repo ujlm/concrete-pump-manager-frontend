@@ -19,7 +19,7 @@ b.	Begintijd job: easy to set by user
 c.	Eindtijd job: easy to set by user
 d.	Type pomp: select from searchable dropdown list, which can be managed on a separate page (add/remove/edit pumps)
 e.	Type pomp gevraagd: can be different or same as type pomp
-f.	Pompist: searchable dropdown, pompists should be editable in a separate page
+f.	driver: searchable dropdown, drivers should be editable in a separate page
 g.	Klant: searchable dropdown, editable on separate page
 h.	Prijslijst: searchable dropdown, manageable on separate page
 i.	Adres: Google maps API integration with autocomplete
@@ -31,7 +31,7 @@ n.	Verwacht volume: int in m3
 o.	Aantal meter leidingen: int in m2
 p.	Type bouwwerk: fixed searchable dropdown with hardcoded values like “Chape” and “Funderingen”
 q.	Eigen notities dispatcher: free text with private notes for dispatcher
-r.	Extra info voor pompist: free text with private notes visible to pompist
+r.	Extra info voor driver: free text with private notes visible to driver
 s.	Status: te plannen (default), gepland (standaard), gepland eigen beton, geannuleerd
 t.	CreatedAt and updatedAt (set automatically)
 Calendar view: Planned appointments (voorlopige planning)
@@ -136,8 +136,8 @@ Fields:
 •	Tarief centrale reiniging: Float (price)
 •	Verhoging tarieven weekend: Int (in percent, so eg value of 50 means 50% price increase in weekends)
 •	Zak cement prijs: Float (price)
-•	Tweede pompist tarief: Float (price)
-•	Lengte slangen vanaf toevoeging 2e pompist: Float (meter)
+•	Tweede driver tarief: Float (price)
+•	Lengte slangen vanaf toevoeging 2e driver: Float (meter)
 •	CreatedAt and updatedAt (set automatically)
 
 Page: admin/users
@@ -151,7 +151,7 @@ Fields:
 •	Actief: Boolean
 •	Email: string (optional)
 •	Telefoonnr: string (optional)
-•	Role: select one or more from “Pompist”, “Manager”, “Dispatcher”, “Accountant”
+•	Role: select one or more from “driver”, “Manager”, “Dispatcher”, “Accountant”
 •	CreatedAt and updatedAt (set automatically)
 
 Page: admin/machines
@@ -163,7 +163,7 @@ Fields:
 •	Id
 •	Naam: string (unique)
 •	Machinecode: string
-•	Pompist: LINK to user with role “Pompist”
+•	driver: LINK to user with role “driver”
 •	Pompbonmodel: LINK to invoice
 •	Active: Boolean
 •	Nummerplaat: string in the form X-XXX-XXX
@@ -181,14 +181,14 @@ Page: /dashboard
 Reporting in customizable date range.
 Overview with tables and visualization of the following data:
 •	Gross revenue per client per workday, with totals
-•	Number of jobs per pompist per workday, with totals
+•	Number of jobs per driver per workday, with totals
 •	Volume per pump per workday, with totals
 •	Pivot table of number of annulations per client per workday, with clients
 All reports should be exportable to Excel.
 In general, all tables and data should be exportable to Excel at any time and for any time range.
 
 Permissions and access
-•	User with role “Pompist” can only view their own schedule
+•	User with role “driver” can only view their own schedule
 •	Other users for now have full read/write access
 •	Only the “Manager” can add/edit users
 Future features:
@@ -209,7 +209,7 @@ Styling:
 •	Tailwind V4 Tailwind V4: https://tailwindcss.com/docs/installation/framework-guides/nextjs
 •	Shadcn https://ui.shadcn.com/docs/installation/next 
 Integrations: 
-•	WhatsApp to communicate schedules with pompisten
+•	WhatsApp to communicate schedules with driveren
 •	Google Maps to easily input and verify addresses
 •	Waze to derive realistic driving times based on hour and max. speed of truck
 
